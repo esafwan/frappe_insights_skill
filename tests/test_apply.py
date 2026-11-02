@@ -181,7 +181,7 @@ def test_title_fallback_adopts_unmarked_workbook():
 	site = FakeSite()
 	c = site.client()
 	n = c.post("/api/resource/Insights Workbook", {"title": "URY Sales"})["data"]["name"]
-	r, plan = run(site)
+	r, plan = run(site, adopt=True)
 	assert plan.workbook_live_name == n and len(site.docs["Insights Workbook"]) == 1
 	assert site.docs["Insights Workbook"][n]["from_template"] == "finsights:ury-sales"
 

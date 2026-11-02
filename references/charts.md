@@ -1,5 +1,6 @@
 # Insights v3 charts (Insights Chart v3)
 
+Ratio, hour-of-day and cast measures for charts: see [expressions.md](expressions.md).
 Target: Insights 3.15.1. Paths: FE = `apps/insights/frontend/src2` in the Insights repo (v3 UI; `src` is v2); other paths are relative to the skill root. A chart is a `chart_type` + a `config` JSON over the columns of one query. See [queries.md](queries.md) for the query and [dashboards-filters.md](dashboards-filters.md) for placement.
 
 ## Live findings (verified on Frappe 16.54.0 + Insights 3.15.1, 2026-11-02; they win over source reading where they differ)

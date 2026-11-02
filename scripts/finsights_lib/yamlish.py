@@ -1,48 +1,62 @@
-"""Restricted YAML subset loader (stdlib only).
+"""Restricted YAML subset loader (stdlib only, deterministic).
+
+The built-in parser is the ONLY parser used by load()/loads(): results never
+depend on whether PyYAML is installed. PyYAML is used only when explicitly
+requested (engine="pyyaml" or env FINSIGHTS_YAML=pyyaml), for comparison tests.
 
 Supported: 2-space block maps/sequences, flow {a: 1, b: [x, y]} (may span lines),
-bare/"dq"/'sq' scalars, int/float/true/false/null, # comments.
+bare/"dq"/'sq' scalars, # comments.
 Rejected with SpecParseError(line, col): anchors/aliases, tags, multi-doc, block scalars, tabs.
+
+Scalar rules (YAML 1.2 core-like, stricter):
+- null: `null` or `~` only.
+- bool: `true`/`false`/`True`/`False` only. yes/no/on/off/y/n (any case), TRUE/FALSE, Null/NULL stay STRINGS.
+- int: plain decimal `-?(0|[1-9][0-9]*)` (a leading `+` is accepted): 0, 7, -3.
+- float: plain decimal `-?(0|[1-9][0-9]*).[0-9]+`: 1.5, 0.25.
+- Everything else stays a STRING: zero-padded (08, 0123, 007, 00.5), underscores (1_000),
+  hex/octal/binary (0x1f, 0o7), exponent forms (1e3), `.5`, `1.`, inf/nan, dates (2026-10-21).
+- Quoted scalars ("..." or '...') are always strings.
 """
 
 from __future__ import annotations
 
+import os
 import re
 
 from .common import SpecParseError
 
-_INT = re.compile(r"^[-+]?\d+$")
-_FLOAT = re.compile(r"^[-+]?(\d+\.\d*|\.\d+|\d+(?=[eE]))([eE][-+]?\d+)?$")
+_INT = re.compile(r"^[-+]?(0|[1-9][0-9]*)$")
+_FLOAT = re.compile(r"^[-+]?(0|[1-9][0-9]*)\.[0-9]+$")
 _BLOCK = re.compile(r"^[|>][+-]?\d*$")
 _ESC = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\", "/": "/", "0": "\0"}
 
 
-def load(path, force_builtin: bool = False):
+def load(path, force_builtin: bool = True, engine: str | None = None):
 	with open(path, encoding="utf-8") as f:
-		return loads(f.read(), force_builtin=force_builtin)
+		return loads(f.read(), force_builtin=force_builtin, engine=engine)
 
 
-def loads(text: str, force_builtin: bool = False):
-	if not force_builtin:
+def loads(text: str, force_builtin: bool = True, engine: str | None = None):
+	"""Parse text with the built-in parser. `force_builtin` is kept for compatibility and is a no-op.
+
+	PyYAML only when engine == "pyyaml" or FINSIGHTS_YAML=pyyaml (comparison tests only).
+	"""
+	if (engine or os.environ.get("FINSIGHTS_YAML", "")).lower() == "pyyaml":
+		import yaml  # type: ignore
 		try:
-			import yaml  # type: ignore
-		except ImportError:
-			yaml = None
-		if yaml is not None:
-			try:
-				return yaml.safe_load(text)
-			except yaml.YAMLError as e:
-				mark = getattr(e, "problem_mark", None)
-				raise SpecParseError(str(getattr(e, "problem", e)), (mark.line + 1) if mark else 1, (mark.column + 1) if mark else 1)
+			return yaml.safe_load(text)
+		except yaml.YAMLError as e:
+			mark = getattr(e, "problem_mark", None)
+			raise SpecParseError(str(getattr(e, "problem", e)), (mark.line + 1) if mark else 1, (mark.column + 1) if mark else 1)
 	return _Parser(text).parse()
 
 
 def _scalar(tok: str, line: int, col: int):
-	if tok in ("null", "~", "Null", "NULL"):
+	if tok in ("null", "~"):
 		return None
-	if tok in ("true", "True", "TRUE"):
+	if tok in ("true", "True"):
 		return True
-	if tok in ("false", "False", "FALSE"):
+	if tok in ("false", "False"):
 		return False
 	if _INT.match(tok):
 		return int(tok)

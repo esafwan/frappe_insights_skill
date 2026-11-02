@@ -79,3 +79,37 @@ def test_builtin_equals_pyyaml():
 	yaml = pytest.importorskip("yaml")
 	text = FIX.read_text()
 	assert yamlish.loads(text, force_builtin=True) == yaml.safe_load(text)
+
+
+@pytest.mark.parametrize("tok", ["yes", "No", "ON", "off", "y", "N", "Y"])
+def test_yes_no_stay_strings(tok):
+	assert L(f"a: {tok}\n") == {"a": tok}
+
+
+@pytest.mark.parametrize("tok,val", [("true", True), ("True", True), ("false", False), ("False", False), ("null", None), ("~", None)])
+def test_bool_null(tok, val):
+	assert L(f"a: {tok}\n") == {"a": val}
+
+
+@pytest.mark.parametrize("tok", ["TRUE", "FALSE", "Null", "NULL"])
+def test_other_case_forms_are_strings(tok):
+	assert L(f"a: {tok}\n") == {"a": tok}
+
+
+@pytest.mark.parametrize("tok", ["08", "0123", "007", "00.5", "1_000", "0x1f", "0o7", "1e3", "1.5e3", ".5", "1.", "2026-10-21"])
+def test_zero_padded_and_nondecimal_are_strings(tok):
+	assert L(f"a: {tok}\n") == {"a": tok}
+
+
+@pytest.mark.parametrize("tok,val", [("0", 0), ("7", 7), ("-3", -3), ("1.5", 1.5), ("0.25", 0.25), ("-0.5", -0.5)])
+def test_plain_decimals(tok, val):
+	got = L(f"a: {tok}\n")["a"]
+	assert got == val and type(got) is type(val)
+
+
+def test_quoted_always_strings():
+	assert L("a: \"5\"\nb: 'true'\nc: \"null\"\n") == {"a": "5", "b": "true", "c": "null"}
+
+
+def test_flow_scalars_same_rules():
+	assert L("a: [08, yes, 7, null]\n") == {"a": ["08", "yes", 7, None]}

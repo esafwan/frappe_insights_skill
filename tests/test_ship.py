@@ -60,12 +60,25 @@ def test_second_write_is_idempotent(spec, cat, app):
 	assert before.count("insights_workbooks") == 1
 
 
-def test_existing_hook_line_untouched(spec, cat, app):
+def test_existing_hook_elsewhere_is_refused_not_ignored(spec, cat, app):
+	# An app that already declares another templates dir must not get files in a dir
+	# that Insights would never read (they would silently never load).
 	hp = app / "ury" / "hooks.py"
 	hp.write_text('insights_workbooks = "other_dir"')
 	doc, _ = compile_spec(spec, cat)
-	shipmod.ship(doc, spec, app, write=True)
+	with pytest.raises(FinsightsError) as e:
+		shipmod.ship(doc, spec, app, write=True)
+	assert e.value.exit_code == 3
 	assert hp.read_text() == 'insights_workbooks = "other_dir"'
+
+
+def test_existing_hook_elsewhere_with_templates_dir_leaves_hook_untouched(spec, cat, app):
+	hp = app / "ury" / "hooks.py"
+	hp.write_text('insights_workbooks = "other_dir"')
+	doc, _ = compile_spec(spec, cat)
+	shipmod.ship(doc, spec, app, write=True, templates_dir="other_dir")
+	assert hp.read_text() == 'insights_workbooks = "other_dir"'
+	assert (app / "ury" / "other_dir").is_dir()
 
 
 def test_hooks_without_trailing_newline(spec, cat, app):

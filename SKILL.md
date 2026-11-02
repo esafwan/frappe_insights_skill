@@ -34,11 +34,12 @@ Exit codes: 0 ok, 1 lint/verify failure, 2 usage/parse, 3 live conflict, 4 auth/
 | Decide what to build | `references/analytics-planning.md`, `templates/plan_template.md`, URY: `references/ury-analytics.md` |
 | New dashboard/query/chart | edit spec, `lint`, `compile`, `plan`, `apply --write` (`references/queries.md`, `charts.md`, `dashboards-filters.md`) |
 | Check column names exist | `catalog -o cat.json` then `lint --catalog cat.json` |
-| Rename a chart/query | `apply --rename id=OLD TITLE` (children are keyed by workbook + title) |
-| Take over an existing workbook | `apply --adopt`; remove orphans only with `--prune` |
+| Hour of day, ratio, cast, date bucket | `references/expressions.md` (then `queries.md`) |
+| Rename a chart/query | `apply --rename id=OLD TITLE` (children are keyed by workbook + title; exit 3 if OLD is also another spec item's title) |
+| Take over an existing workbook | `apply --write --adopt`, review `plan`, only then `apply --write --prune` (rule 13) |
 | Prove it works | `verify --min-rows 1`; opens `/insights/dashboards/<name>` |
 | Link it in desk | apply, verify, then `desk --dashboard <live name> --app <app path>`, then run the printed `fdesk` commands (frappe-desk skill) |
-| Ship inside an app | `ship --app PATH [--standard --forward]` (`references/api-shipping.md`) |
+| Ship inside an app | `ship --app PATH [--templates-dir DIR] [--standard --forward]` (`references/api-shipping.md`) |
 | YAML to JSON | `fmt --to json` |
 
 ## Hard rules (each has a reason)
@@ -50,28 +51,31 @@ Exit codes: 0 ok, 1 lint/verify failure, 2 usage/parse, 3 live conflict, 4 auth/
 6. **A chart's `config` carries dimensions/measures; the query is the base table plus filters.** Do not pre-aggregate in the query for charts that dashboard filters must hit.
 7. **Row-level query + chart-side aggregation**, so dashboard filters bind to the query's final columns. An aggregated query hides the column the filter needs.
 8. **Number chart: with a date column + comparison it shows the LATEST period, without a date it shows the TOTAL.** Pick deliberately (verified live, Frappe 16.54.0 + Insights 3.15.1, 2026-11-02).
-9. **A malformed filter link is dropped silently.** Link shape: `{<chart live name>: "`<query live name>`.`<column>`"}` (backticks). `verify` checks links; a filter with no effect means a bad link.
+9. **A malformed filter link is dropped silently.** Link shape: `{<chart live name>: "`<query live name>`.`<column>`"}` (backticks). `verify` rule V05 checks every filter link (chart is on the dashboard, format, query equals the chart's query, column is in the query result) and warns on a filter with no links; a filter with no effect means a bad link.
 10. **Money questions filter `docstatus = 1`.** URY: use POS Invoice with `docstatus=1`; never filter `status = 'Paid'` (about two thirds of rows are `Consolidated`) and always filter `Sales Invoice Payment.parenttype = 'POS Invoice'` (see `references/ury-analytics.md`).
 11. **Two desk tiers** (`references/desk-integration.md`). Tier A (Frappe 16.54.0 + Insights 3.15.1, today; every v16 release): dashboard lives at `/insights/dashboards/<name>`, surfaced by a Workspace URL shortcut / Sidebar URL item / Dock URL tile; not embedded. Tier B (Frappe develop 17.0.0-dev islands + Insights develop): `Dashboard.insights_dashboard` embeds it; islands exist in no v16 release. Detect with the commands in `references/desk-integration.md` section 0.
 12. **Never make a dashboard or chart public to share financial data.** Share with named users/roles (`references/permissions.md`).
+13. **Adopt, review, then prune; never both in one run.** A workbook with the same title that finsights did not create is refused (exit 3) unless `--adopt`; `--prune` deletes every query/chart/dashboard not in the spec, so with `--adopt` it would wipe someone else's content unseen. `apply --prune` is refused (exit 3) in the run that adopted by title. Order: `apply --write --adopt`, read `plan`, then `apply --write --prune`. If `apply` fails part-way it prints the lines done so far to stderr; fix the cause and re-run (idempotent).
 
 ## When something looks wrong
-| Symptom | Look at |
+| Symptom (rows tagged (unverified) have no live reproduction) | Look at |
 |---|---|
 | Blank chart | chart `config` columns not in the query output; query returns 0 rows (`verify` V02); catalog column name wrong (`references/charts.md`, `gotchas.md`) |
 | Dashboard filter has no effect | link malformed or points at an aggregated column (rules 7, 9; `dashboards-filters.md`) |
 | Duplicate workbook on the site | someone used `import_workbook`; keep one, `apply --adopt`, delete the other by hand |
 | `NoneType` not iterable on execute | `run_doc_method` sent without the full doc (rule 4) |
-| Numbers off by a day | date grain/timezone: group on the date column at day grain and check the site timezone (`gotchas.md`) |
-| Branch (or any link) filter shows empty options | wrong column, or column NULL in the base rows; check with `catalog` and a row-level query (`dashboards-filters.md`) |
+| Numbers off by a day (unverified) | date grain/timezone: group on the date column at day grain and check the site timezone (`gotchas.md`) |
+| Branch (or any link) filter shows empty options (unverified) | wrong column, or column NULL in the base rows; check with `catalog` and a row-level query (`dashboards-filters.md`) |
 | Number card shows one period, expected total (or reverse) | rule 8 |
 | `plan` says orphan | spec lost a title; use `--rename`, else `--prune` deliberately |
 | `ship --standard` loads nothing on 3.15.1 | forward format, Tier B only (`api-shipping.md`) |
 
 ## Where to read what
+- `references/spec-format.md`: spec grammar, lint rules L01-L28, commands, verify rules V01-V05, YAML scalar rules.
 - `references/model.md`: how Workbook/Query/Chart/Dashboard/Data Source relate; the document fields.
 - `references/v2-v3-traps.md`: v2 names that look right and are wrong.
 - `references/queries.md`: operations, expressions, row-level patterns, MariaDB quirks.
+- `references/expressions.md`: hour of day, ratio, cast, date-bucket recipes for query expressions.
 - `references/charts.md`: chart types, `config` shapes, number/trend/breakdown recipes.
 - `references/dashboards-filters.md`: layout, items, filter links, global filters.
 - `references/api-shipping.md`: the HTTP API and shipping a workbook inside an app.
@@ -84,11 +88,11 @@ Exit codes: 0 ok, 1 lint/verify failure, 2 usage/parse, 3 live conflict, 4 auth/
 
 ## Do not
 - Do not call `import_workbook`, or write `data_query`/`linked_charts`, directly.
-- Do not guess a column: `catalog` first; lint L-rules flag unknown columns.
+- Do not guess a column: `catalog` first; lint L05, L06 and L08 flag unknown tables/columns (only with a catalog).
+- Do not rely on `share:` in a spec: it is not applied (lint L26 warns); grant access in the Insights UI (`references/permissions.md`).
 - Do not present v2 doctypes or APIs as usable.
 - Do not use `bench console` or SQL writes to fix Insights docs; fix the spec and re-apply.
 - Do not claim a dashboard works until `verify` passes and the page was opened.
 
 ## Unverified
-- Symptom rows "numbers off by a day" and "empty branch filter" are from experience-level pointers; the cause lines are not cited to a live reproduction.
-- Exact lint rule IDs for unknown columns not checked against `finsights_lib/lint.py`.
+- Symptom rows "numbers off by a day" and "empty branch filter" are experience-level pointers, not reproduced live.

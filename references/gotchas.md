@@ -18,6 +18,9 @@ Each trap: symptom, cause, fix, proof. Only evidence-backed traps are listed; `(
 9. **`from_template` marker is safe.** `from_template` is writable; migrate's `sync_workbook_template_updates` ignores unknown markers. Do not set it to a real app template name (exit 3 without `--adopt`). Owner: [api-shipping.md](api-shipping.md). Proof: from Insights source: insights/api/templates.py:417-440.
 10. **Never write `data_query` or `linked_charts`.** Cause: server auto-creates the first empty and fills the second from dashboard `items`. API-created charts render with no editor. `--materialize-data-query` is not needed. Owner: [charts.md](charts.md). Proof: verified live, Frappe 16.54.0 + Insights 3.15.1, 2026-11-02.
 
+33. **Unmarked same-title workbook is refused, and `--prune` is blocked right after `--adopt`.** Symptom: `apply` exits 3 "a workbook titled ... exists that finsights did not create". Cause: the workbook has no `finsights:<id>` marker; taking it over by title could rewrite someone's work, and `--prune` deletes every child not in the spec, so adopt plus prune in one run would delete content before you saw `plan`. Fix: `apply --write --adopt`, read `plan`, then `apply --write --prune`. New workbooks get the marker in the create request. Owner: [api-shipping.md](api-shipping.md). Proof: (covered by tests: `tests/test_apply_safety.py`).
+34. **A failed `apply` leaves part of the workbook written.** Cause: REST writes are one request per doc, not a transaction. The lines done so far are printed to stderr. Fix: fix the cause (HTTP errors show the server `exc_type` and message) and re-run `apply --write`; it matches by marker and title and continues. Owner: [api-shipping.md](api-shipping.md). Proof: (covered by tests: `tests/test_apply.py`).
+
 ## 3. Queries
 
 11. **`run_doc_method` TypeError / operations None.** Cause: it needs the FULL query doc from GET, not `{doctype,name}`. Fix: GET the doc, pass it as `docs`. Owner: [queries.md](queries.md), [api-shipping.md](api-shipping.md). Proof: verified live, Frappe 16.54.0 + Insights 3.15.1, 2026-11-02.
@@ -26,20 +29,29 @@ Each trap: symptom, cause, fix, proof. Only evidence-backed traps are listed; `(
 14. **Joined docstatus collision.** After a join two `docstatus` columns exist and finsights cannot qualify columns by table, so a filter hits ambiguously. Fix: filter child `docstatus = 1` (mirrors parent) and do not filter parent `docstatus` on joined queries; never select the joined `docstatus`. Owner: [queries.md](queries.md). Proof: `examples/ury_overview.yaml` header.
 15. **`window_operation`, `remove`, `pivot_wider`, `custom_operation`.** Read from code/types only; `window_operation` appears ignored. (unverified). Owner: [queries.md](queries.md).
 
+35. **Hour of day, ratio or cast gives wrong or empty values.** Use the recipes in [expressions.md](expressions.md) instead of improvising; remember `time_diff` (gotcha 12) and text-typed numbers (gotcha 24). Owner: [expressions.md](expressions.md). Proof: see that file's evidence notes.
+
 ## 4. Charts
 
 16. **Map, Bubble, Sankey, Table `conditional_formatting`.** Never rendered live; configs from types only. (unverified). Owner: [charts.md](charts.md).
+
+36. **`yes`/`no`/`on`/`off` and `08` in a spec are strings, not booleans or numbers.** Symptom: a filter value `no` or `08` compiles as the string, or an expected boolean is not one. Cause: the built-in YAML parser accepts only `true`/`false` as booleans and plain decimals as numbers (PyYAML is not used, so every machine agrees). Fix: write `true`/`false`, and quote values that must stay strings (`"08"`, `"no"`). Owner: [spec-format.md](spec-format.md). Proof: (covered by tests: `tests/test_yamlish.py`).
+37. **`share:` in a spec does nothing.** Cause: accepted by the grammar, never applied; lint L26 warns. Fix: grant access in the Insights UI or via `insights.api.workbooks.update_share_permissions` ([permissions.md](permissions.md)). Proof: from finsights code (no code path applies it).
+38. **Join column collision.** A join `columns` entry with the same name as a base column lands in the same output name (lint L28). Fix: drop it from that join's `columns`, or use a `source_query` with a mutate alias. Owner: [queries.md](queries.md). Proof: (covered by tests: `tests/test_lint_extra.py`).
 
 ## 5. Dashboards and filters
 
 17. **Filter link silently dropped on import.** Cause: link dropped when its chart/query is not in the file, value empty, or no ".". On REST write, no validation at all. Fix: GET the dashboard after write and check each `links` entry. Owner: [dashboards-filters.md](dashboards-filters.md). Proof: (from Insights source: insights/doctype/insights_workbook/insights_workbook.py:144-174).
 18. **Grid.** 20 columns; `x+w > 20` is corrected at render, not rejected. Owner: [dashboards-filters.md](dashboards-filters.md). Proof: "Overlap rules" (from Insights source: frontend/src2 common.ts:126-145).
 19. **Number/non-`within` Date filter defaults.** No fixture, not run. (unverified). Owner: [dashboards-filters.md](dashboards-filters.md).
+39. **Dead filter link is now caught by `verify`.** Cause: gotcha 17 (links dropped or wrong on write). `verify` rule V05 checks each link: chart is on the dashboard, format is `` `query`.`column` ``, the query is the chart's query, the column is in the query result; a filter with no links is a warning. Fix: correct the `applies_to` mapping in the spec and re-apply. Owner: [dashboards-filters.md](dashboards-filters.md). Proof: (covered by tests: `tests/test_verify_links.py`); not yet run against a live site.
 
 ## 6. Desk
 
 20. **No UI islands on Frappe v16.** Cause: v16.54.0 and tag v16.50.0 contain 0 island paths; develop (`17.0.0-dev`) has 78; Insights develop is 3.50.0-dev. Fix: Tier A only (URL shortcut/sidebar/dock to `/insights/dashboards/<name>`); do not add `Dashboard.insights_dashboard`. Owner: [desk-integration.md](desk-integration.md). Proof: file listing of Frappe v16.54.0 vs develop, 2026-11-02.
 21. **Iframing Insights fails.** `X-Frame-Options: SAMEORIGIN`; shared pages need `is_public`. Owner: [desk-integration.md](desk-integration.md). Proof: (iframe rejection; not re-tested here). Tier A shortcut live render is (unverified).
+
+40. **`ship` writes nothing when hooks.py points elsewhere.** Symptom: `ship` exits 3 "hooks.py already declares insights_workbooks = ...". Cause: the app already declares a different templates directory, and writing into `workbook_templates` would never load. Fix: re-run with `--templates-dir <that directory>` (single directory name), or change the hook. A computed hook value also exits 3. Owner: [api-shipping.md](api-shipping.md). Proof: (covered by tests: `tests/test_ship_hook.py`).
 
 ## 7. URY data
 

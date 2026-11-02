@@ -10,6 +10,9 @@ GOLDEN = json.loads((Path(__file__).parent / "golden" / "ury_overview.json").rea
 
 
 def applied(**kw):
+	# The golden dashboard links filters to posting_date and branch: the fake query result must
+	# expose those columns or verify rule V05 (filter links) correctly flags them as missing.
+	kw.setdefault("canned_rows", [{"posting_date": "2026-01-01", "branch": "b", "x": 1}])
 	site = FakeSite(**kw)
 	comp = copy.deepcopy(GOLDEN)
 	c = site.client()
@@ -44,7 +47,7 @@ def test_verify_v02_empty_rows():
 
 
 def test_verify_min_rows_param():
-	site, comp, c = applied(canned_rows=[{"a": 1}])
+	site, comp, c = applied(canned_rows=[{"a": 1, "posting_date": "2026-01-01", "branch": "b"}])
 	assert verify(comp, c, min_rows=2) and verify(comp, c, min_rows=1) == []
 
 

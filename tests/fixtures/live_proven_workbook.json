@@ -1,0 +1,46 @@
+{
+ "version": "1.0", "type": "Workbook", "name": "ury-sales-proof",
+ "doc": {"name": "ury-sales-proof", "title": "URY Sales Proof"},
+ "dependencies": {
+  "folders": [],
+  "queries": {
+   "tq-pos-invoices": {
+    "name": "tq-pos-invoices", "title": "POS Invoices", "workbook": "ury-sales-proof", "folder": null, "sort_order": 0,
+    "use_live_connection": 1, "is_script_query": 0, "is_builder_query": 1, "is_native_query": 0,
+    "operations": [
+     {"type": "source", "table": {"type": "table", "data_source": "Site DB", "table_name": "tabPOS Invoice"}},
+     {"type": "filter_group", "logical_operator": "And", "filters": [
+       {"column": {"type": "column", "column_name": "docstatus"}, "operator": "=", "value": 1}]}
+    ]}
+  },
+  "charts": {
+   "tc-kpis": {"name": "tc-kpis", "title": "Sales KPIs", "workbook": "ury-sales-proof", "folder": null, "sort_order": 0, "query": "tq-pos-invoices", "chart_type": "Number",
+     "config": {"number_columns": [
+       {"measure_name": "Sales", "column_name": "grand_total", "data_type": "Decimal", "aggregation": "sum"},
+       {"measure_name": "Invoices", "column_name": "name", "data_type": "Integer", "aggregation": "count"}]}},
+   "tc-trend": {"name": "tc-trend", "title": "Daily Sales", "workbook": "ury-sales-proof", "folder": null, "sort_order": 1, "query": "tq-pos-invoices", "chart_type": "Line",
+     "config": {"x_axis": {"dimension": {"dimension_name": "posting_date", "column_name": "posting_date", "data_type": "Date", "granularity": "day"}},
+       "y_axis": {"series": [{"measure": {"measure_name": "Sales", "column_name": "grand_total", "data_type": "Decimal", "aggregation": "sum"}}], "show_data_labels": false},
+       "order_by": [{"column": {"type": "column", "column_name": "posting_date"}, "direction": "asc"}], "limit": 100,
+       "filters": {"logical_operator": "And", "filters": []}}},
+   "tc-by-branch": {"name": "tc-by-branch", "title": "Sales by Branch", "workbook": "ury-sales-proof", "folder": null, "sort_order": 2, "query": "tq-pos-invoices", "chart_type": "Row",
+     "config": {"x_axis": {"dimension": {"dimension_name": "branch", "column_name": "branch", "data_type": "String"}},
+       "y_axis": {"series": [{"measure": {"measure_name": "Sales", "column_name": "grand_total", "data_type": "Decimal", "aggregation": "sum"}}], "show_data_labels": true},
+       "order_by": [{"column": {"type": "column", "column_name": "grand_total"}, "direction": "desc"}], "limit": 10,
+       "filters": {"logical_operator": "And", "filters": []}}}
+  },
+  "dashboards": {
+   "td-overview": {"name": "td-overview", "title": "URY Sales Overview", "workbook": "ury-sales-proof", "items": [
+     {"type": "filter", "filter_name": "Date Range", "filter_type": "Date", "icon": "calendar", "default_operator": "within", "default_value": "Last 12 months",
+       "links": {"tc-kpis": "`tq-pos-invoices`.`posting_date`", "tc-trend": "`tq-pos-invoices`.`posting_date`", "tc-by-branch": "`tq-pos-invoices`.`posting_date`"},
+       "layout": {"i": "item-f-date", "x": 0, "y": 0, "w": 10, "h": 1}},
+     {"type": "filter", "filter_name": "Branch", "filter_type": "String", "icon": "building-2",
+       "links": {"tc-kpis": "`tq-pos-invoices`.`branch`", "tc-trend": "`tq-pos-invoices`.`branch`", "tc-by-branch": "`tq-pos-invoices`.`branch`"},
+       "layout": {"i": "item-f-branch", "x": 10, "y": 0, "w": 10, "h": 1}},
+     {"type": "chart", "chart": "tc-kpis", "layout": {"i": "item-kpis", "x": 0, "y": 1, "w": 20, "h": 3}},
+     {"type": "chart", "chart": "tc-trend", "layout": {"i": "item-trend", "x": 0, "y": 4, "w": 12, "h": 9}},
+     {"type": "chart", "chart": "tc-by-branch", "layout": {"i": "item-branch", "x": 12, "y": 4, "w": 8, "h": 9}}
+   ]}
+  }
+ }
+}

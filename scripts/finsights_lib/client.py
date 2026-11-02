@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import http.cookiejar
 import json
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -25,6 +26,39 @@ def _parse_json_fields(doc: dict) -> dict:
 			except ValueError:
 				pass
 	return doc
+
+
+_TAG_RE = re.compile(r"<[^>]*>")
+_MAX_MSG = 300
+
+
+def _clean(text) -> str:
+	text = _TAG_RE.sub(" ", str(text))
+	return re.sub(r"\s+", " ", text).strip()[:_MAX_MSG]
+
+
+def _first_server_message(payload: dict) -> str:
+	"""First meaningful text from `_server_messages` (JSON string of JSON strings), defensively."""
+	raw = payload.get("_server_messages")
+	if raw:
+		try:
+			items = json.loads(raw) if isinstance(raw, str) else raw
+			for it in items if isinstance(items, list) else [items]:
+				try:
+					obj = json.loads(it) if isinstance(it, str) else it
+				except ValueError:
+					obj = it
+				txt = obj.get("message") if isinstance(obj, dict) else obj
+				txt = _clean(txt) if isinstance(txt, (str, int, float)) else ""
+				if txt:
+					return txt
+		except (ValueError, TypeError, AttributeError):
+			pass
+	for k in ("exception", "message"):
+		v = payload.get(k)
+		if isinstance(v, str) and _clean(v):
+			return _clean(v)
+	return ""
 
 
 class Client:
@@ -62,8 +96,46 @@ class Client:
 		return cls(url, user=user, password=pwd, api_key=key, api_secret=secret)
 
 	# -------------------------------------------------------------- transport
-	def _request(self, method: str, path: str, params=None, body=None) -> dict:
-		if not path.startswith("/api/method/login"):
+	def _secrets(self):
+		return [x for x in (self._password, self._api_secret, self._api_key) if x and len(str(x)) >= 3]
+
+	def _scrub(self, text: str) -> str:
+		for x in self._secrets():
+			text = text.replace(str(x), "***")
+		return text
+
+	def _http_error(self, method, path, e) -> FinsightsError:
+		code = e.code
+		detail = ""
+		try:
+			payload = json.loads(e.read().decode("utf-8", "replace"))
+			if isinstance(payload, dict):
+				exc_type = payload.get("exc_type")
+				msg = _first_server_message(payload)
+				detail = " | ".join(x for x in (exc_type and _clean(exc_type), msg) if x)
+		except Exception:
+			detail = ""
+		where = f"{method} {path} -> HTTP {code}"
+		if code in (401, 403):
+			who = self._user or ("API key" if self._api_key else "the configured user")
+			head = (
+				f"{where}: authentication or permission problem for {who}: check "
+				"INSIGHTS_USER/INSIGHTS_PASSWORD or API key and the Insights User/Admin role"
+			)
+		elif code == 404:
+			head = f"{where}: not found"
+		elif code >= 500:
+			head = f"{where}: server error"
+		else:
+			head = f"{where}: server rejected the request"
+		msg = self._scrub(head + (f" ({detail})" if detail else ""))
+		err = FinsightsError(msg, 4)
+		err.status = code
+		return err
+
+	def _request(self, method: str, path: str, params=None, body=None, _retry=True) -> dict:
+		is_login = path.startswith("/api/method/login")
+		if not is_login:
 			self._ensure_login()
 		url = self.base_url + urllib.parse.quote(path, safe="/:")
 		if params:
@@ -82,11 +154,24 @@ class Client:
 			resp = self._opener.open(req, timeout=60)
 			raw = resp.read()
 		except urllib.error.HTTPError as e:
-			err = FinsightsError(f"{method} {path} -> HTTP {e.code}", 4)
-			err.status = e.code
+			err = self._http_error(method, path, e)
+			if (
+				err.status in (401, 403)
+				and _retry
+				and not is_login
+				and self._logged_in
+				and not (self._api_key and self._api_secret)
+				and self._user
+				and self._password
+			):
+				self._logged_in = False
+				self.login()  # one re-login; raises on failure
+				return self._request(method, path, params, body, _retry=False)
 			raise err from None
 		except (urllib.error.URLError, OSError) as e:
-			raise FinsightsError(f"{method} {path} failed: {getattr(e, 'reason', e)}", 4) from None
+			host = urllib.parse.urlparse(self.base_url).netloc or self.base_url
+			reason = self._scrub(_clean(getattr(e, "reason", e)))
+			raise FinsightsError(f"{method} {path}: cannot reach {host} ({reason})", 4) from None
 		if not raw:
 			return {}
 		try:

@@ -1,4 +1,4 @@
-"""Semantic lint for finsights specs (spec section 3: L01..L25).
+"""Semantic lint for finsights specs (spec section 3: L01..L28).
 
 L01/L03/L04 come from spec.shape_findings; everything else lives here.
 `lint_spec` never raises on malformed input: objects with shape errors are skipped by the
@@ -626,6 +626,61 @@ def _l24(ctx):
 			ctx.add("L24", "warn", _p("", "queries", ctx.qidx[qid]), f"query `{qid}` used by no chart", "add a chart or remove the query")
 
 
+def _l26(ctx):
+	if "share" in ctx.spec:
+		ctx.add("L26", "warn", "/share", "share is not applied",
+			"`share:` is accepted but nothing applies it (finsights never grants access); grant access in the Insights UI "
+			"or via insights.api.workbooks.update_share_permissions")
+
+
+def _l27(ctx):
+	for ci, c in _dicts(ctx.spec.get("charts")):
+		p = _p("", "charts", ci)
+		t = c.get("type")
+		if ctx.is_bad(p) or not isinstance(t, str):
+			continue
+		name = next((x for x in ("Map", "Bubble", "Sankey") if x.lower() == t.strip().lower()), None)
+		if name:
+			ctx.add("L27", "warn", _p(p, "type"), f"chart `{c.get('id')}`: derived chart type `{name}`",
+				"compiled config is derived from the Insights type definitions and unverified on 3.15.1; check the rendered chart")
+
+
+def _l28(ctx):
+	cat = ctx.catalog
+	if cat is None:
+		return
+	for qi, q in _dicts(ctx.spec.get("queries")):
+		p = _p("", "queries", qi)
+		if ctx.is_bad(p) or not _list(q.get("joins")) or q.get("sql"):
+			continue
+		final = safe_schema(ctx, q.get("id"))
+		if final is None:
+			continue
+		if q.get("table"):
+			if q["table"] not in cat:
+				continue
+			have = set(cat[q["table"]])
+			base = q["table"]
+		else:
+			src = safe_schema(ctx, q.get("source_query"))
+			if src is None:
+				continue
+			have = set(src)
+			base = q.get("source_query")
+		for j, jn in _dicts(q.get("joins")):
+			jt = jn.get("table")
+			if jt not in cat:
+				continue
+			for k, c in enumerate(_list(jn.get("columns"))):
+				n = _col(c)
+				if n and n in have and n in final:
+					ctx.add("L28", "warn", _p(p, "joins", j, "columns", k),
+						f"join column collision: `{n}` exists in both `{base}` and joined `{jt}`",
+						f"the join carries `{n}` from `{jt}` into the same output name as the base column; remove `{n}` from "
+						"this join's `columns` (select cannot rename), or build a source_query on the joined table with a mutate alias")
+			have |= {_col(c) for c in _list(jn.get("columns")) if _col(c)}
+
+
 def _guard(fn, ctx):
 	try:
 		fn(ctx)
@@ -658,6 +713,9 @@ def lint_spec(spec, catalog, only=None) -> list:
 	_guard(_dashboards, ctx)
 	_guard(_l21, ctx)
 	_guard(_l24, ctx)
+	_guard(_l26, ctx)
+	_guard(_l27, ctx)
+	_guard(_l28, ctx)
 	return _finish(ctx.out, only)
 
 

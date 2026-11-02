@@ -88,6 +88,8 @@ Manifest keys: required `title, description, required_apps, source_doctypes`; op
 
 Proof status: `apply` idempotency (create all, second run no-op, one PUT per change, orphans kept without `--prune`, exit 3 on ambiguity) is proven by the fake-site tests in `tests/test_apply.py`. The live run of `finsights apply` is not recorded in; the REST create/update steps it uses are proven live (section 1). `tests/test_apply.py`
 
+Ship hook check: `ship` parses the app's hooks.py. No `insights_workbooks` line: it appends `insights_workbooks = "workbook_templates"`. Literal already equal to `workbook_templates`: nothing to add. Literal pointing at another directory (say `"my_templates"`): `ship` writes nothing and exits 3 unless you pass `--templates-dir my_templates`, which then writes into that directory. A non-literal value (computed) also exits 3: make it a plain string. `--templates-dir` must be a single directory name.
+
 ## 5. Upstream ERPNext/HRMS pattern (Insights develop; not on this bench)
 Reference templates: the ERPNext and HRMS develop-branch workbooks and Insights develop source (fetch from their repos).
 - Layout: `<app>/<module_folder>/insights_workbook/<slug>/<slug>.json`, same `<doctype>/<name>/<name>.json` convention as Reports. 6 ERPNext + 4 HRMS workbooks.
@@ -99,8 +101,10 @@ Reference templates: the ERPNext and HRMS develop-branch workbooks and Insights 
 - Upstream test `hrms/tests/test_insights_workbooks.py` asserts every role in `visible_to_roles` can read every table its queries touch; copy that check when you ship role-gated dashboards.
 
 ## 6. Idempotency, naming, never-write
-- Spec ids never become docnames. Workbook lookup: `from_template == "finsights:<workbook id>"`, then exact `title`; 0 matches create, >1 exits 3; a match carrying an app template id exits 3 unless `--adopt`. Marker is PUT right after the create. migrate ignores unknown markers (`api/templates.py:417-440`).
-- Query/Chart/Dashboard are keyed by `(workbook, title)`; titles must be unique per kind (lint L04). Rename = `--rename <id>=<old title>`; without it a rename is create + orphan. Deletes only with `--prune` (order dashboards, charts, queries).
+- Spec ids never become docnames. Workbook lookup: `from_template == "finsights:<workbook id>"`, then exact `title`; 0 matches create, >1 exits 3; a match carrying an app template id, or carrying no marker (not created by finsights), exits 3 unless `--adopt`. A new workbook is created with the marker already in the create POST (no window where it is unmarked). migrate ignores unknown markers (`api/templates.py:417-440`).
+- Adopt then prune, in two runs: `apply --write --adopt`, review `plan`, then `apply --write --prune`. `--prune` is refused (exit 3) in the run that adopted by title, because it would delete every query/chart/dashboard of the taken-over workbook that is not in the spec.
+- Partial failure: if a request fails mid-apply, the lines done so far are printed to stderr and the command exits non-zero (HTTP errors show the server `exc_type` and message, secrets scrubbed; 401/403 adds an auth/role hint, and one automatic re-login is tried first). Fix the cause and re-run `apply --write`: it matches by marker and title, so it resumes rather than duplicating.
+- Query/Chart/Dashboard are keyed by `(workbook, title)`; titles must be unique per kind (lint L04). Rename = `--rename <id>=<old title>` (exit 3 if the old title is also another spec item's match); without it a rename is create + orphan. Deletes only with `--prune` (order dashboards, charts, queries).
 - Rewrite every spec-local name through `name_map` before diffing: source/join/union `query_name`, `chart.query`, item `chart`, filter `links` keys and values.
 - Diff after normalising: parse JSON fields, sort keys, drop `layout.moved`, `modified`, `owner`, `data_query`, `linked_charts`.
 - Never written by finsights: `data_query`, `linked_charts`.
@@ -114,7 +118,7 @@ Reference templates: the ERPNext and HRMS develop-branch workbooks and Insights 
 | 0 | ok / no changes |
 | 1 | lint errors, verify failure, `compile --check` mismatch |
 | 2 | usage or spec parse error (also `ship --standard` without `--forward`, missing INSIGHTS_URL) |
-| 3 | live conflict: ambiguous lookup, template-managed workbook without `--adopt`, orphan drift |
+| 3 | live conflict: ambiguous lookup, template-managed or unmarked same-title workbook without `--adopt`, `--prune` in an adopting run, ambiguous `--rename`, `ship` hook pointing at another directory |
 | 4 | auth, network, HTTP 5xx |
 | 5 | `plan --exit-code` with pending changes |
 

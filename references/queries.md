@@ -1,5 +1,6 @@
 # Queries: data source, tables, operations grammar, expressions, running
 
+Hour of day, ratio, cast and date-bucket expression recipes: see [expressions.md](expressions.md).
 Doctype `Insights Query v3` (never `Insights Query`, see v2-v3-traps.md). The query body is `operations`, a JSON list; the builder runs ops in order, each yields a new table. Source paths (e.g. `functions.py`) are relative to the Insights app dir `apps/insights/insights`; FE = `apps/insights/frontend/src2`.
 
 ## Data source and tables

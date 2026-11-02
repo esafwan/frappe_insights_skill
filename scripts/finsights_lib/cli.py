@@ -83,6 +83,8 @@ def build_parser() -> argparse.ArgumentParser:
 	sp.add_argument("--standard", action="store_true")
 	sp.add_argument("--forward", action="store_true", help="acknowledge the layout is not loadable on 3.15.1")
 	sp.add_argument("--catalog", default=None, metavar="FILE")
+	sp.add_argument("--templates-dir", default=None, metavar="DIR",
+		help="write into this directory when the app's hooks.py already declares insights_workbooks = \"DIR\"")
 
 	sp = add("fmt", "convert a spec to JSON")
 	sp.add_argument("--to", choices=["json"], required=True)
@@ -329,7 +331,8 @@ def cmd_ship(args) -> int:
 	spec, doc, rc = _compiled(args, fmt)
 	if rc:
 		return rc
-	res = shipmod.ship(doc, spec, args.app, write=args.write, standard=args.standard, forward=args.forward)
+	res = shipmod.ship(doc, spec, args.app, write=args.write, standard=args.standard, forward=args.forward,
+		templates_dir=args.templates_dir)
 	for w in res.warnings:
 		_err(w)
 	if args.json:

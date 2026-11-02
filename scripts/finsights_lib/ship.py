@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,6 +14,7 @@ from .compile import dumps
 
 HOOK_LINE = 'insights_workbooks = "workbook_templates"'
 HOOK_RE = re.compile(r"^\s*insights_workbooks\s*=", re.M)
+DEFAULT_DIR = "workbook_templates"
 DEPRECATED = "WARN deprecated hook (migrate.py:62); removed next major"
 
 
@@ -52,6 +54,41 @@ def _manifest(spec: dict) -> dict:
 	return m
 
 
+def declared_hook(text: str):
+	"""Return (state, value): ('none'|'literal'|'computed', str|None). Uses ast; regex fallback if unparsable."""
+	try:
+		tree = ast.parse(text)
+	except SyntaxError:
+		tree = None
+	if tree is None:
+		ms = list(re.finditer(r"""^[ \t]*insights_workbooks[ \t]*=[ \t]*(?:"([^"\n]*)"|'([^'\n]*)')[ \t]*(?:#.*)?$""", text, re.M))
+		if ms:
+			m = ms[-1]
+			return "literal", m.group(1) if m.group(1) is not None else m.group(2)
+		if HOOK_RE.search(text):
+			return "computed", None
+		return "none", None
+	found = None
+	for node in tree.body:
+		targets, value = [], None
+		if isinstance(node, ast.Assign):
+			targets, value = node.targets, node.value
+		elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+			targets, value = [node.target], node.value
+		if any(isinstance(t, ast.Name) and t.id == "insights_workbooks" for t in targets):
+			if isinstance(node, ast.Assign) and isinstance(value, ast.Constant) and isinstance(value.value, str):
+				found = ("literal", value.value)
+			else:
+				found = ("computed", None)
+	return found or ("none", None)
+
+
+def _check_templates_dir(templates_dir: str):
+	if (not templates_dir or "/" in templates_dir or "\\" in templates_dir or ".." in templates_dir
+			or templates_dir.startswith(".")):
+		raise FinsightsError(f"invalid --templates-dir {templates_dir!r}: must be a single directory name", 2)
+
+
 def _put(res: ShipResult, path: Path, text: str, write: bool, root: Path):
 	rel = path.relative_to(root.parent) if root.parent in path.parents else path
 	old = path.read_text(encoding="utf-8") if path.is_file() else None
@@ -66,7 +103,7 @@ def _put(res: ShipResult, path: Path, text: str, write: bool, root: Path):
 
 
 def ship(compiled_template: dict, spec: dict, app_path, write: bool = False, standard: bool = False,
-		forward: bool = False) -> ShipResult:
+		forward: bool = False, templates_dir=None) -> ShipResult:
 	if standard and not forward:
 		raise FinsightsError("--standard needs --forward: the standard layout is not loadable on Insights 3.15.1", 2)
 	pkg = _pkg_dir(app_path)
@@ -82,12 +119,26 @@ def ship(compiled_template: dict, spec: dict, app_path, write: bool = False, sta
 		_put(res, mdir / f"{scrub(module)}_dashboard" / slug / f"{slug}.json", dash, write, pkg)
 	else:
 		slug = compiled_template["name"]
-		tdir = pkg / "workbook_templates" / slug
-		_put(res, tdir / "manifest.json", dumps(_manifest(spec)), write, pkg)
-		_put(res, tdir / "workbook.json", dumps(compiled_template), write, pkg)
 		hooks = pkg / "hooks.py"
 		text = hooks.read_text(encoding="utf-8")
-		if not HOOK_RE.search(text):
+		if templates_dir is not None:
+			_check_templates_dir(templates_dir)
+		state, declared = declared_hook(text)
+		if state == "computed":
+			raise FinsightsError("hooks.py assigns insights_workbooks to a non-literal value; cannot verify "
+				"where templates are loaded from. Make it a plain string literal.", 3)
+		if state == "literal" and declared != DEFAULT_DIR:
+			if templates_dir != declared:
+				raise FinsightsError(f'hooks.py already declares insights_workbooks = "{declared}", not "{DEFAULT_DIR}". '
+					f"Change the hook, or re-run with --templates-dir {declared}.", 3)
+		elif templates_dir is not None and templates_dir != DEFAULT_DIR:
+			raise FinsightsError(f"--templates-dir {templates_dir} does not match the hook "
+				f'(declared: "{declared or DEFAULT_DIR}")', 3)
+		use_dir = declared if state == "literal" else DEFAULT_DIR
+		tdir = pkg / use_dir / slug
+		_put(res, tdir / "manifest.json", dumps(_manifest(spec)), write, pkg)
+		_put(res, tdir / "workbook.json", dumps(compiled_template), write, pkg)
+		if state == "none":
 			res.changed = True
 			res.files.append(str(hooks))
 			res.lines.append(f"~ update {hooks.relative_to(pkg.parent)}: append {HOOK_LINE}")

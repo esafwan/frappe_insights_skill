@@ -115,7 +115,12 @@ Severity: E error, W warning (fails only with `--strict`), I info. "(cat)" = nee
 | L23 | E | chart `order.by` not an output alias (measure `as`, dimension, rows/columns) | use an alias |
 | L24 | W | query used by no chart and no `source_query` | add a chart or delete the query |
 | L25 | E | dashboard `text` item empty | add content or remove |
+| L26 | W | spec has a `share` key: it is accepted but nothing applies it (finsights never grants access) | grant access in the Insights UI or via `insights.api.workbooks.update_share_permissions` |
+| L27 | W | chart type `Map`, `Bubble` or `Sankey`: config is derived from the Insights type definitions, unverified on 3.15.1 | open the rendered chart and check it |
+| L28 | W (cat) | a join `columns` entry has the same name as a base-table column, so the output name collides | remove it from that join's `columns` (select cannot rename), or build a `source_query` on the joined table with a mutate alias |
 Findings are JSON-pointer addressed (`/charts/0/y/1`); `--json` gives `{findings:[{rule,severity,path,message,fix_hint}], ok}`; `--only L06,L08` filters. Compile also emits L21 info lines on stderr. `compile`, `plan`, `apply`, `verify`, `ship` run lint first (with the discovered catalog) and stop with exit 1 on errors (warnings do not stop them).
+
+**Verify rules** (`finsights verify`): V01 object missing on site or drifted from the compile; V02 chart's query returned fewer than `--min-rows` rows; V03 query run failed; V04 dashboard `linked_charts` != chart items; V05 dashboard filter links: error when the target chart is not an item on the dashboard, the value is not `` `query`.`column` ``, the query is not the chart's query, or the column is not in the query's result; warn when a filter has no links.
 
 ## 5. Commands
 Global flags work before or after the subcommand: `--spec FILE`, `--json`, `--write` (only meaningful for apply/ship; default is dry-run). All writes are dry-run unless `--write`.
@@ -125,20 +130,21 @@ Global flags work before or after the subcommand: `--spec FILE`, `--json`, `--wr
 | `compile` | `--format template*\|standard`, `-o FILE`, `--check FILE`, `--catalog` | prints workbook JSON; `--check` exits 1 if FILE differs (CI drift guard); writes only `-o` | no |
 | `catalog` | `--tables`, `--data-source`, `-o` | snapshot columns | yes |
 | `plan` | `--catalog`, `--adopt`, `--rename id="Old Title"` (repeatable), `--exit-code` | diff vs live: `+ create`, `~ update <fields>`, `- orphan`, or `no changes`; read-only | yes |
-| `apply` | as plan + `--prune`; `--materialize-data-query` is ignored with a note | dry-run unless `--write`; creates/updates over REST | yes |
-| `verify` | `--catalog`, `--min-rows N` (default 1) | read-only; V01 missing/drifted object, V02 query rows < N, V03 query run failed, V04 dashboard linked_charts != chart items; prints dashboard URLs | yes |
+| `apply` | as plan + `--prune`; `--materialize-data-query` is ignored with a note | dry-run unless `--write`; creates/updates over REST. A new workbook is created with its `finsights:` marker in the create request. Refuses with exit 3: unmarked same-title workbook without `--adopt`; `--prune` in the run that adopted by title; `--rename` whose OLD title is also the live match of another spec item. If it fails part-way, the lines done so far go to stderr; re-run to recover | yes |
+| `verify` | `--catalog`, `--min-rows N` (default 1) | read-only; V01 missing/drifted object, V02 query rows < N, V03 query run failed, V04 dashboard linked_charts != chart items, V05 filter links (see below); prints dashboard URLs | yes |
 | `desk` | `--tier url*\|island`, `--dashboard NAME`, `--app PATH` | prints commands only | optional: resolves the live dashboard name via plan only when `INSIGHTS_URL` is set, `--tier url` and no `--dashboard`; otherwise prints `<dashboard name>` placeholders. Never needs it if `--dashboard` is given |
-| `ship` | `--app PATH` (default .), `--standard`, `--forward`, `--catalog` | writes `workbook_templates/<id>/{manifest,workbook}.json` and the `insights_workbooks` hook line in the app's hooks.py (dry-run unless `--write`); `--standard` (needs `--forward`, needs `workbook.module`) writes the develop-branch standard layout, not loadable on 3.15.1 | no |
+| `ship` | `--app PATH` (default .), `--standard`, `--forward`, `--catalog` | writes `workbook_templates/<id>/{manifest,workbook}.json` and the `insights_workbooks` hook line in the app's hooks.py (dry-run unless `--write`); `--standard` (needs `--forward`, needs `workbook.module`) writes the develop-branch standard layout, not loadable on 3.15.1. `--templates-dir DIR`: required when hooks.py already declares `insights_workbooks = "DIR"` with a different directory (otherwise exit 3, nothing written); a non-literal hook value is also exit 3 | no |
 | `fmt` | `--to json` (R), `-o` | convert spec to JSON | no |
 Env (network commands only: catalog, plan, apply, verify, `lint --catalog live`, `desk` as above): `INSIGHTS_URL` (e.g. https://site, required) plus either `INSIGHTS_API_KEY`+`INSIGHTS_API_SECRET` or `INSIGHTS_USER`+`INSIGHTS_PASSWORD`. Secrets are env-only and never printed. Missing env is exit 2; rejected login or HTTP/connection failure is exit 4.
-**Exit codes**: 0 ok; 1 lint errors (or warnings with `--strict`), verify findings, or `compile --check` diff; 2 usage, unreadable/unparseable spec, bad catalog, missing env; 3 live conflict (ambiguous title/marker match, or workbook owned by another marker without `--adopt`); 4 auth/network failure; 5 `plan --exit-code` with pending changes.
+**Exit codes**: 0 ok; 1 lint errors (or warnings with `--strict`), verify findings, or `compile --check` diff; 2 usage, unreadable/unparseable spec, bad catalog, missing env; 3 live conflict (ambiguous title/marker match; workbook owned by another marker or unmarked with the same title, without `--adopt`; `--prune` in an adopting run; ambiguous `--rename`; `ship` hook pointing at another directory); 4 auth/network failure; 5 `plan --exit-code` with pending changes.
 
 ## 6. Identity and idempotency (plan/apply)
-- Workbook identity: the `from_template` field holds the marker `finsights:<workbook compiled name>` (e.g. `finsights:ury-sales`). Lookup order: marker match, then title. Two marker hits = exit 3. A title match owned by a different marker/template is exit 3 unless `--adopt`, which re-stamps the marker.
+- Workbook identity: the `from_template` field holds the marker `finsights:<workbook compiled name>` (e.g. `finsights:ury-sales`). Lookup order: marker match, then title. Two marker hits = exit 3. A title match owned by a different marker/template, or by no marker at all (not created by finsights), is exit 3 unless `--adopt`, which stamps the marker. A new workbook gets the marker in the create request itself.
 - Queries/charts/dashboards inside the workbook match by **title** (the spec title is the key). Changing a title therefore means create + orphan; use `--rename query_id="Old live title"` to update in place. Ambiguous duplicate live titles = exit 3.
 - Written fields only: workbook `title, from_template`; query `title, folder, sort_order, use_live_connection, is_*_query, operations`; chart `title, folder, sort_order, query, chart_type, config`; dashboard `title, items`. It **never writes** `data_query` or `linked_charts`: Insights computes those server-side, and chart helper queries (`data_query`) and empty helper queries are ignored by matching.
 - Cross-references in operations/config are rewritten from spec names to live names before diffing, so a second run gives `no changes`.
-- Objects on the site but not in the spec are `orphan`; they are kept unless `apply --prune --write` deletes them.
+- Objects on the site but not in the spec are `orphan`; they are kept unless `apply --prune --write` deletes them. `--prune` is refused (exit 3) in the same run that adopted a workbook by title, so adopt never deletes content unseen: `apply --write --adopt`, review `plan`, then `apply --write --prune`.
+- `--rename ID=OLD TITLE` updates the live doc titled OLD in place; exit 3 if OLD is also the live match of another spec item (rename or remove one first).
 - Re-running `apply --write` after `no changes` writes nothing.
 
 ## 7. Recommended order
@@ -150,3 +156,11 @@ Env (network commands only: catalog, plan, apply, verify, `lint --catalog live`,
 6. `finsights verify --spec s.yaml` (prints `/insights/dashboards/<live name>`)
 7. `finsights desk --spec s.yaml --dashboard <live name>`; without a live dashboard (or without `--dashboard`/`INSIGHTS_URL`) it prints `<dashboard name>` placeholders, so run it after step 5 and execute the printed `fdesk` lines yourself.
 For app delivery instead of a live site use `ship` (see `api-shipping.md`).
+
+## 8. YAML scalar rules
+The built-in parser is the only one used by default (PyYAML is not used), so a spec parses identically on every machine.
+- Booleans: only `true`/`false`/`True`/`False`. `yes no on off y n` (any case) and `TRUE`/`FALSE` stay strings.
+- Null: `null` or `~` only.
+- Numbers: plain decimal ints (`0`, `7`, `-3`) and floats with digits on both sides (`1.5`). Zero-padded (`08`, `007`), `1_000`, `0x1f`, `1e3`, `.5`, `1.`, `inf`/`nan` and dates (`2026-10-21`) stay strings.
+- Quoted scalars are always strings. Quote anything ambiguous (`value: "08"`, `value: "no"`).
+- Rejected: anchors/aliases, tags, multi-document, block scalars, tabs.

@@ -13,7 +13,9 @@ from finsights_lib.compile import compile_spec, dumps
 HERE = Path(__file__).resolve().parent
 FIX = HERE / "fixtures"
 GOLD = HERE / "golden"
-PROOF = Path("/Users/safwan/Code/URY/ury_workspaces/tracks/frappe-insights-skill/proof/ury_sales_proof.json")
+# A workbook payload that was imported on a real Insights 3.15.1 site and rendered correctly
+# (structural parity reference for the compiler output).
+PROOF = FIX / "live_proven_workbook.json"
 SCRIPTS = HERE.parent / "scripts"
 
 

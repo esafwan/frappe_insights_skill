@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import sys
 from dataclasses import dataclass, field
 
 from .common import FinsightsError
@@ -42,6 +43,7 @@ class Plan:
 	actions: list
 	name_map: dict
 	workbook_live_name: str | None = None
+	title_matched: bool = False  # workbook was found by title, not by marker
 
 
 @dataclass
@@ -177,7 +179,13 @@ def _find_workbook(compiled, client, adopt):
 			raise FinsightsError(
 				f"workbook {hits[0]['name']} is managed by template/marker {ft!r}; pass adopt to take it over", 3
 			)
-		return hits[0]
+		if not ft and not adopt:
+			raise FinsightsError(
+				f"a workbook titled {title!r} exists ({hits[0]['name']}) that finsights did not create. "
+				"`--adopt` takes it over (sets the finsights marker); `--prune` will then treat its other "
+				"queries, charts and dashboards as orphans and delete them. Review `plan` before pruning.", 3
+			)
+		return dict(hits[0], _by_title=True)
 	return None
 
 
@@ -222,10 +230,17 @@ def plan_apply(compiled: dict, client, adopt: bool = False, renames: dict | None
 			rows = [r for r in rows if r["name"] not in helpers and not _is_empty_helper(r)]
 		live_by_kind[kind] = rows
 		matched[kind] = set()
-		for key, doc in (deps.get(DEP_KEY[kind]) or {}).items():
+		kdocs = deps.get(DEP_KEY[kind]) or {}
+		for key, doc in kdocs.items():
 			want = [doc["title"]]
 			if key in renames or doc.get("name") in renames:
-				want.append(renames.get(key, renames.get(doc.get("name"))))
+				old = renames.get(key, renames.get(doc.get("name")))
+				clash = any(k2 != key and d2["title"] == old for k2, d2 in kdocs.items())
+				if clash and any(r["title"] == old for r in rows):
+					raise FinsightsError(
+						f"rename {old!r} is ambiguous: a live {kind} with that title is also the match of "
+						"another spec item. Rename or remove one of them first", 3)
+				want.append(old)
 			hit = None
 			for t in want:
 				c = [r for r in rows if r["title"] == t and r["name"] not in matched[kind]]
@@ -258,7 +273,7 @@ def plan_apply(compiled: dict, client, adopt: bool = False, renames: dict | None
 		for r in live_by_kind[kind]:
 			if r["name"] not in matched[kind]:
 				actions.append(Action("orphan", DOCTYPES[kind], "", r["name"], {}, r["title"]))
-	return Plan(actions, name_map, wb_live)
+	return Plan(actions, name_map, wb_live, bool(wb and wb.get("_by_title")))
 
 
 # ------------------------------------------------------------------ apply
@@ -271,60 +286,70 @@ def apply_plan(plan: Plan, compiled: dict, client, write: bool = False, prune: b
 	name_map = dict(plan.name_map)
 	wb_live = plan.workbook_live_name
 	mk = marker(compiled)
-	pending = False
+	if prune and plan.title_matched:
+		raise FinsightsError(
+			"refusing --prune: the workbook was matched by title and is not yet marked as finsights-managed. "
+			"Adopt first without --prune, review `plan`, then prune", 3)
 
 	def say(prefix, a, extra=""):
 		res.lines.append(f"{prefix} {KIND_OF[a.doctype]} {a.title!r}{extra}")
 
-	for a in plan.actions:
-		kind = KIND_OF[a.doctype]
-		if a.op == "noop":
-			continue
-		if a.op == "orphan":
-			if prune:
-				pending = True
-				if write:
-					client.delete(f"/api/resource/{a.doctype}/{a.live_name}")
-					say("deleted", a, f" ({a.live_name})")
+	state = {'pending': False}
+	try:
+		for a in plan.actions:
+			kind = KIND_OF[a.doctype]
+			if a.op == "noop":
+				continue
+			if a.op == "orphan":
+				if prune:
+					state['pending'] = True
+					if write:
+						client.delete(f"/api/resource/{a.doctype}/{a.live_name}")
+						say("deleted", a, f" ({a.live_name})")
+					else:
+						say("- would delete", a, f" ({a.live_name})")
 				else:
-					say("- would delete", a, f" ({a.live_name})")
-			else:
-				say("orphan", a, f" ({a.live_name}; not deleted, use prune)")
-			continue
-		pending = True
-		if kind == "workbook":
-			if a.op == "create":
-				if not write:
+					say("orphan", a, f" ({a.live_name}; not deleted, use prune)")
+				continue
+			state['pending'] = True
+			if kind == "workbook":
+				if a.op == "create":
+					if not write:
+						say("+ would create", a)
+						continue
+					r = client.post(f"/api/resource/{a.doctype}", {"title": a.title, "from_template": mk})
+					wb_live = r["data"]["name"]
+					name_map[a.key] = wb_live
+					say("created", a, f" ({wb_live})")
+				else:
+					if not write:
+						say("~ would update", a, " " + ",".join(sorted(a.fields)))
+						continue
+					client.put(f"/api/resource/{a.doctype}/{a.live_name}", dict(a.fields))
+					say("updated", a, " " + ",".join(sorted(a.fields)))
+				continue
+			if not write:
+				if a.op == "create":
 					say("+ would create", a)
-					continue
-				r = client.post(f"/api/resource/{a.doctype}", {"title": a.title})
-				wb_live = r["data"]["name"]
-				name_map[a.key] = wb_live
-				client.put(f"/api/resource/{a.doctype}/{wb_live}", {"from_template": mk})
-				say("created", a, f" ({wb_live})")
-			else:
-				if not write:
+				else:
 					say("~ would update", a, " " + ",".join(sorted(a.fields)))
-					continue
-				client.put(f"/api/resource/{a.doctype}/{a.live_name}", dict(a.fields))
-				say("updated", a, " " + ",".join(sorted(a.fields)))
-			continue
-		if not write:
+				continue
+			want = rewrite(kind, _doc_for(compiled, a, kind), name_map, wb_live)
 			if a.op == "create":
-				say("+ would create", a)
+				body = {f: want[f] for f in FIELDS[kind] + ("workbook",) if f in want}
+				r = client.post(f"/api/resource/{a.doctype}", body)
+				name_map[a.key] = r["data"]["name"]
+				say("created", a, f" ({name_map[a.key]})")
 			else:
-				say("~ would update", a, " " + ",".join(sorted(a.fields)))
-			continue
-		want = rewrite(kind, _doc_for(compiled, a, kind), name_map, wb_live)
-		if a.op == "create":
-			body = {f: want[f] for f in FIELDS[kind] + ("workbook",) if f in want}
-			r = client.post(f"/api/resource/{a.doctype}", body)
-			name_map[a.key] = r["data"]["name"]
-			say("created", a, f" ({name_map[a.key]})")
-		else:
-			body = {f: want[f] for f in a.fields if f in want}
-			client.put(f"/api/resource/{a.doctype}/{a.live_name}", body)
-			say("updated", a, " " + ",".join(sorted(body)))
+				body = {f: want[f] for f in a.fields if f in want}
+				client.put(f"/api/resource/{a.doctype}/{a.live_name}", body)
+				say("updated", a, " " + ",".join(sorted(body)))
+	except Exception as e:
+		e.partial_lines = list(res.lines)
+		if res.lines:
+			print("apply failed part-way; done so far:\n  " + "\n  ".join(res.lines), file=sys.stderr)
+		raise
+	pending = state['pending']
 	res.changed = pending
 	if not pending:
 		res.lines = ["no changes"] + res.lines
