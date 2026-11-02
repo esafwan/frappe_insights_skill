@@ -1,4 +1,5 @@
-"""Argparse wiring for finsights. Exit codes: 0 ok, 1 lint/verify/check failure, 2 usage/parse, 3 live conflict,
+"""Argparse wiring for finsights. Commands: lint compile catalog plan apply verify desk ship fmt, plus the
+API-backed build bulk export review heal. Exit codes: 0 ok, 1 lint/verify/check failure, 2 usage/parse, 3 live conflict,
 4 auth/network, 5 `plan --exit-code` with pending changes. Secrets are env-only and never printed."""
 
 from __future__ import annotations
@@ -89,7 +90,43 @@ def build_parser() -> argparse.ArgumentParser:
 	sp = add("fmt", "convert a spec to JSON")
 	sp.add_argument("--to", choices=["json"], required=True)
 	sp.add_argument("-o", "--output", default=None, metavar="FILE")
+
+	sp = add("build", "one-shot lint/heal/plan/apply/verify of a spec (dry-run unless --write)")
+	_build_flags(sp)
+	sp.add_argument("--confirm", default=None, metavar="TOKEN")
+
+	sp = add("bulk", "build many specs from a JSON list or {\"specs\": [...]}")
+	sp.add_argument("file", metavar="FILE.json")
+	_build_flags(sp)
+	sp.add_argument("--confirm", action="append", default=[], metavar="WORKBOOK_ID=TOKEN")
+	sp.add_argument("--stop-on-error", action="store_true")
+	sp.add_argument("--max-items", type=int, default=20)
+
+	sp = add("export", "export a live workbook (or the index of all) as JSON")
+	g = sp.add_mutually_exclusive_group(required=True)
+	g.add_argument("--workbook", default=None, metavar="REF")
+	g.add_argument("--all", action="store_true")
+	sp.add_argument("-o", "--output", default=None, metavar="FILE")
+
+	sp = add("review", "run every chart query of a live workbook and report")
+	sp.add_argument("--workbook", required=True, metavar="REF")
+	sp.add_argument("--min-rows", type=int, default=1)
+
+	sp = add("heal", "offline: apply safe fixes to a spec, list proposed ones")
+	sp.add_argument("-o", "--output", default=None, metavar="FILE")
+	sp.add_argument("--max-rounds", type=int, default=3)
+	sp.add_argument("--catalog", default=None, metavar="FILE")
 	return p
+
+
+def _build_flags(sp):
+	sp.add_argument("--heal", choices=["safe", "propose", "off"], default="safe")
+	sp.add_argument("--max-rounds", type=int, default=3)
+	sp.add_argument("--adopt", action="store_true")
+	sp.add_argument("--prune", action="store_true")
+	sp.add_argument("--catalog", default=None, metavar="FILE")
+	sp.add_argument("--no-verify", action="store_true")
+	sp.add_argument("--min-rows", type=int, default=1)
 
 
 # ---------------------------------------------------------------- helpers
@@ -357,7 +394,190 @@ def cmd_fmt(args) -> int:
 	return 0
 
 
-COMMANDS = {"lint": cmd_lint, "compile": cmd_compile, "catalog": cmd_catalog, "plan": cmd_plan, "apply": cmd_apply,
+def _parse_text(text, label):
+	text = text.lstrip("\ufeff")
+	try:
+		data = json.loads(text)
+	except json.JSONDecodeError:
+		try:
+			from . import yamlish
+			data = yamlish.loads(text)
+		except Exception as e:
+			raise FinsightsError(f"cannot parse {label} as JSON or YAML: {e}", 2)
+	return data
+
+
+def _load_any(path):
+	"""Spec from a file, or stdin when path is '-'."""
+	if path == "-":
+		data = _parse_text(sys.stdin.read(), "stdin")
+		if not isinstance(data, dict):
+			raise FinsightsError("spec on stdin must be a mapping", 2)
+		return data
+	return specmod.load_spec(path)
+
+
+def _cat_file(args):
+	c = getattr(args, "catalog", None)
+	if c == "live":
+		raise FinsightsError("--catalog live is only valid for lint", 2)
+	return catmod.load(c) if c else None
+
+
+def _json_text(o):
+	return json.dumps(o, indent=1, sort_keys=True, default=str, ensure_ascii=False)
+
+
+def _build_rc(res):
+	if res.get("ok"):
+		return 0
+	err = res.get("error") or {}
+	code = err.get("exit_code")
+	if code in (2, 3, 4):
+		return code
+	return 1
+
+
+def _fix_lines(label, fixes):
+	for f in fixes or []:
+		yield f"{label}: {f.get('rule', '')} {f.get('path', '')}: {f.get('description', '')}".rstrip()
+		for a in f.get("alternatives") or []:
+			yield f"    alternative: {a.get('description', '')}"
+
+
+def _summary(res, indent=""):
+	wb = res.get("workbook") or {}
+	lines = [f"{indent}{wb.get('title') or wb.get('id') or '-'}: stage={res.get('stage')} ok={res.get('ok')}"
+		f" findings={len(res.get('findings') or [])}"]
+	plan = res.get("plan")
+	if plan:
+		lines.append(f"{indent}plan: {plan.get('creates', 0)} create, {plan.get('updates', 0)} update, "
+			f"{plan.get('orphans', 0)} orphan")
+	for f in res.get("findings") or []:
+		lines.append(f"{indent}{f.get('severity')} {f.get('rule')} {f.get('path')}: {f.get('message')}")
+	lines += [indent + ln for ln in _fix_lines("healed", res.get("healed"))]
+	lines += [indent + ln for ln in _fix_lines("needs_decision", res.get("needs_decision"))]
+	for d in res.get("dashboards") or []:
+		lines.append(f"{indent}dashboard: {d.get('path') or d.get('live_name') or d.get('title')}")
+	err = res.get("error")
+	if err:
+		lines.append(f"{indent}error ({err.get('exit_code')}): {err.get('message')}")
+	if res.get("confirm"):
+		lines.append(f"{indent}confirm: {res['confirm']}")
+	return lines
+
+
+def cmd_build(args) -> int:
+	if not args.spec:
+		raise FinsightsError("--spec FILE|- is required", 2)
+	spec = _load_any(args.spec)
+	cat = _cat_file(args)
+	from . import api
+	res = api.build(spec, catalog=cat, write=args.write, adopt=args.adopt, prune=args.prune,
+		verify=not args.no_verify, heal=args.heal, max_rounds=args.max_rounds, confirm=args.confirm,
+		min_rows=args.min_rows)
+	if args.json:
+		_out(_json_text(res))
+	else:
+		for ln in _summary(res):
+			_out(ln)
+	return _build_rc(res)
+
+
+def _confirms(items):
+	out = {}
+	for it in items or []:
+		if "=" not in it:
+			raise FinsightsError(f"--confirm expects workbook_id=TOKEN, got {it!r}", 2)
+		k, v = it.split("=", 1)
+		out[k.strip()] = v.strip()
+	return out
+
+
+def cmd_bulk(args) -> int:
+	p = Path(args.file)
+	try:
+		text = p.read_text(encoding="utf-8")
+	except OSError as e:
+		raise FinsightsError(f"cannot read {args.file}: {e}", 2)
+	data = _parse_text(text, args.file)
+	if isinstance(data, dict) and "specs" in data:
+		data = data["specs"]
+	if not isinstance(data, list):
+		raise FinsightsError("bulk file must be a JSON list or {\"specs\": [...]}", 2)
+	specs = [_load_any(str(Path(x))) if isinstance(x, str) else x for x in data]
+	cat = _cat_file(args)
+	from . import api
+	res = api.build_many(specs, stop_on_error=args.stop_on_error, max_items=args.max_items, catalog=cat,
+		write=args.write, adopt=args.adopt, prune=args.prune, verify=not args.no_verify, heal=args.heal,
+		max_rounds=args.max_rounds, confirm=_confirms(args.confirm) or None, min_rows=args.min_rows)
+	if args.json:
+		_out(_json_text(res))
+	else:
+		sm = res.get("summary") or {}
+		_out(f"bulk: ok={res.get('ok')} total={sm.get('total')} ok={sm.get('ok')} failed={sm.get('failed')} "
+			f"skipped={sm.get('skipped')}")
+		if res.get("error"):
+			_out(f"error ({res['error'].get('exit_code')}): {res['error'].get('message')}")
+		for it in res.get("items") or []:
+			for ln in _summary(it, "  "):
+				_out(ln)
+	if res.get("error") and not res.get("items"):
+		return _build_rc(res)
+	failed = (res.get("summary") or {}).get("failed", 0)
+	if res.get("ok") and not failed:
+		return 0
+	codes = [(i.get("error") or {}).get("exit_code") for i in res.get("items") or []]
+	return next((c for c in (3, 4) if c in codes), 1)
+
+
+def _write_or_print(text, output):
+	if output:
+		Path(output).write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
+		_out(f"wrote {output}")
+	else:
+		_out(text)
+
+
+def cmd_export(args) -> int:
+	from . import export
+	client = _client()
+	res = export.export_all(client) if args.all else export.export_workbook(client, args.workbook)
+	_write_or_print(_json_text(res), args.output)
+	return 0 if res.get("ok", True) else _build_rc(res)
+
+
+def cmd_review(args) -> int:
+	from . import export
+	res = export.review(_client(), args.workbook, min_rows=args.min_rows)
+	if args.json:
+		_out(_json_text(res))
+	else:
+		_out(f"review {(res.get('workbook') or {}).get('title', args.workbook)}: ok={res.get('ok')}")
+		for c in res.get("charts") or []:
+			_out(f"  chart {c.get('title')}: rows={c.get('rows')} {'ok' if c.get('ok') else 'FAIL ' + str(c.get('error'))}")
+		for d in res.get("dashboards") or []:
+			_out(f"  dashboard {d.get('title')}: {d.get('path')} links_ok={d.get('links_ok')}")
+		for f in res.get("findings") or []:
+			_out(f"  {f.get('severity')} {f.get('rule')} {f.get('path')}: {f.get('message')}")
+	return 0 if res.get("ok") else 1
+
+
+def cmd_heal(args) -> int:
+	if not args.spec:
+		raise FinsightsError("--spec FILE|- is required", 2)
+	spec = _load_any(args.spec)
+	cat = _cat_file(args)
+	from . import heal
+	res = heal.heal_spec(spec, cat, max_rounds=args.max_rounds)
+	out = {k: res.get(k) for k in ("spec", "rounds", "applied", "proposed", "remaining")}
+	_write_or_print(_json_text(out), args.output)
+	bad = [f for f in (res.get("remaining") or []) if f.get("severity") == "error"]
+	return 1 if bad else 0
+
+
+COMMANDS = {"build": cmd_build, "bulk": cmd_bulk, "export": cmd_export, "review": cmd_review, "heal": cmd_heal,
+	"lint": cmd_lint, "compile": cmd_compile, "catalog": cmd_catalog, "plan": cmd_plan, "apply": cmd_apply,
 	"verify": cmd_verify, "desk": cmd_desk, "ship": cmd_ship, "fmt": cmd_fmt}
 
 
