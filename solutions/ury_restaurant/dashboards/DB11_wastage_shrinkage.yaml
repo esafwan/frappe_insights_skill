@@ -1,0 +1,71 @@
+# DB11 Wastage And Shrinkage. Audience: kitchen head, finance. Levels: item, raw category, branch, department (wastage, T4).
+# Shrinkage (stock correction child rows) is T1; URY Wastage has 0 rows on the demo (T4): banner + pre-wired empty query
+# (verify V02 on fact_wastage_lines is expected). Base queries copied verbatim from semantic_layer.yaml.
+workbook: {id: ury_db11_wastage_shrinkage, title: "URY DB11 Wastage And Shrinkage", module: "URY", required_apps: [ury]}
+queries:
+  # ---------------------------------------------------------------- STOCK / YIELD / WASTE / PLAN
+  # fact_stock_correction (builder, T1 on child rows). Grain: one Stock Correction Item of a submitted correction.
+  # Use child amount_difference (header difference_amount is 0 on 20/20: never use it). Negative = shrink.
+  - id: fact_stock_correction
+    title: "fact_stock_correction"
+    table: "Stock Correction Item"
+    joins:
+      - {table: "Stock Correction", type: inner, on: [parent, name], columns: [posting_date, branch, company, reason, period_end_date]}
+    filters:
+      - {column: docstatus, op: "=", value: 1}
+    mutate:
+      - {as: shrink_value, type: Decimal, expr: "if_else(amount_difference < 0, amount_difference, 0)"}
+      - {as: overage_value, type: Decimal, expr: "if_else(amount_difference > 0, amount_difference, 0)"}
+      - {as: qty_diff, type: Decimal, expr: "quantity_difference.cast(\"float64\")"}
+    select: [name, parent, posting_date, branch, company, reason, warehouse, item_code, item_name, item_group, uom, qty, current_qty, qty_diff, valuation_rate, amount, current_amount, amount_difference, shrink_value, overage_value]
+
+  # fact_wastage_lines (builder, T4 on demo: 0 rows). Grain: one Wastage Item of a submitted URY Wastage.
+  # Dashboards show an empty-state text block until rows exist (verify --min-rows 0 for this query only).
+  - id: fact_wastage_lines
+    title: "fact_wastage_lines"
+    table: "Wastage Item"
+    joins:
+      - {table: "URY Wastage", type: inner, on: [parent, name], columns: [posting_date, branch, company, department, production_unit, reason_category, status, captured_by, approved_by]}
+    filters:
+      - {column: docstatus, op: "=", value: 1}
+    select: [name, parent, posting_date, branch, company, department, production_unit, reason_category, status, captured_by, approved_by, item_code, item_name, uom, qty, rate, amount]
+
+  # fact_kot_exec (sql, T3 on demo: structure ready, stamps milliseconds apart). Grain: one URY KOT Execution per
+  # (kot, production_unit), DEDUPED to the latest-modified row (6 KOTs have duplicate QUEUED rows).
+  # Why sql: durations need TIMESTAMPDIFF over Datetime (time_diff casts to TIME, drops dates/fractions, sign
+  # unverified); dedupe needs ROW_NUMBER(); KOT fire time is TIMESTAMP(KOT.date, KOT.time).
+  # TIMESTAMPDIFF(SECOND, a, b) = b - a (MariaDB). Date column: exec_date. department = executed unit's department.
+  - id: fact_kot_exec
+    title: "fact_kot_exec"
+    sql: "WITH ex AS (SELECT e.*, ROW_NUMBER() OVER (PARTITION BY e.kot, e.production_unit ORDER BY e.modified DESC) AS rn FROM `tabURY KOT Execution` e) SELECT ex.name, ex.kot, ex.state, ex.production_unit, COALESCE(NULLIF(pu.department, ''), ex.production_unit) AS department, ex.branch, ex.company, DATE(COALESCE(ex.started_at, ex.creation)) AS exec_date, HOUR(k.time) AS hour_of_day, k.type AS kot_type, ex.started_by, ex.ready_by, ex.served_by, ex.cancelled_by, pp.custom_kot_warning_time AS target_minutes, TIMESTAMPDIFF(SECOND, ex.creation, ex.started_at) AS queue_seconds, TIMESTAMPDIFF(SECOND, ex.started_at, ex.ready_at) AS prep_seconds, TIMESTAMPDIFF(SECOND, ex.ready_at, ex.served_at) AS pass_seconds, TIMESTAMPDIFF(SECOND, ex.started_at, ex.served_at) AS cycle_seconds, TIMESTAMPDIFF(SECOND, TIMESTAMP(k.date, k.time), ex.served_at) AS order_to_serve_seconds, CASE WHEN ex.state LIKE 'CANCELLED%' THEN 1 ELSE 0 END AS is_cancelled, CASE WHEN ex.state IN ('CANCELLED_AFTER_START','CANCELLED_AFTER_READY') THEN 1 ELSE 0 END AS wasted_prep, CASE WHEN ex.started_at IS NOT NULL THEN 1 ELSE 0 END AS was_started, CASE WHEN ex.ready_at IS NOT NULL THEN 1 ELSE 0 END AS was_ready, CASE WHEN ex.served_at IS NOT NULL THEN 1 ELSE 0 END AS was_served FROM ex JOIN `tabURY KOT` k ON k.name = ex.kot LEFT JOIN `tabURY Production Unit` pu ON pu.name = ex.production_unit LEFT JOIN `tabPOS Profile` pp ON pp.name = k.pos_profile WHERE ex.rn = 1 AND k.docstatus IN (1, 2)"
+
+charts:
+  - {id: db11_kpi, title: "Shrinkage, Overage And Net Difference", query: fact_stock_correction, type: Number,
+     y: [{column: shrink_value, agg: sum, as: Shrinkage, format: currency}, {column: overage_value, agg: sum, as: Overage, format: currency}, {column: amount_difference, agg: sum, as: "Net Difference", format: currency}]}
+  # Shrinkage is stored NEGATIVE, so (overage - shrink) is the GROSS (absolute) count variance:
+  # 2.48% on the demo data (29,970.4 / 1,208,046). The NET difference is 204 (0.017%).
+  - {id: db11_pct, title: "Gross Count Variance % Of Counted Value", query: fact_stock_correction, type: Number,
+     y: [{expr: "(sum(overage_value) - sum(shrink_value)) / sum(current_amount)", as: "Gross Variance Pct", format: percent}]}
+  - {id: db11_by_item, title: "Shrinkage And Overage By Item", query: fact_stock_correction, type: Bar, limit: 20,
+     x: item_name, y: [{column: shrink_value, agg: sum, as: Shrinkage}, {column: overage_value, agg: sum, as: Overage}]}
+  - {id: db11_by_reason, title: "Net Difference By Reason", query: fact_stock_correction, type: Donut, limit: 8,
+     x: reason, y: [{column: amount_difference, agg: sum, as: "Net Difference"}]}
+  - {id: db11_wasted_prep, title: "Wasted Prep (Cancelled After Start)", query: fact_kot_exec, type: Number,
+     y: [{column: wasted_prep, agg: sum, as: "Wasted Prep"}]}
+  - {id: db11_waste_rows, title: "Wastage Records Logged", query: fact_wastage_lines, type: Number,
+     y: [{column: name, agg: count, as: "Wastage Rows"}]}
+dashboards:
+  - id: wastage_shrinkage
+    title: "URY DB11 Wastage And Shrinkage"
+    filters:
+      - {id: f_date, label: Date, type: date, icon: calendar, applies_to: {fact_stock_correction: posting_date, fact_wastage_lines: posting_date, fact_kot_exec: exec_date}}
+      - {id: f_branch, label: Branch, type: string, icon: store, applies_to: {fact_stock_correction: branch, fact_wastage_lines: branch, fact_kot_exec: branch}}
+      - {id: f_item, label: Item, type: string, icon: package, applies_to: {fact_stock_correction: item_code, fact_wastage_lines: item_code}}
+    items:
+      - {chart: db11_kpi, x: 0, y: 1, w: 12, h: 3}
+      - {chart: db11_pct, x: 12, y: 1, w: 8, h: 3}
+      - {chart: db11_by_item, x: 0, y: 4, w: 12, h: 9}
+      - {chart: db11_by_reason, x: 12, y: 4, w: 8, h: 9}
+      - {chart: db11_wasted_prep, x: 0, y: 13, w: 6, h: 3}
+      - {text: "<p><b>T4</b> Wastage value, reasons, % of sales and by department (WST-001..005): no URY Wastage has ever been recorded (DQ-010 = 0). Also KIT-016 void disposition is 'Pending' on every line. Start logging wastage (roadmap R1); charts are pre-wired to fact_wastage_lines. Days of cover (STK-007) is also T4.</p>", x: 6, y: 13, w: 14, h: 4}
+      - {chart: db11_waste_rows, x: 0, y: 16, w: 6, h: 3}

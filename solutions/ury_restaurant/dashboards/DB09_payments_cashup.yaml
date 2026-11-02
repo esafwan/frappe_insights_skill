@@ -1,0 +1,94 @@
+# DB09 Payments & cash-up. Audience: finance, branch manager. Levels: branch, employee (cashier / closing user).
+# Base queries copied verbatim from semantic_layer.yaml (fact_payments, fact_invoices, fact_closing_details).
+# Closings exist only for Consolidated bills; Paid bills are "unclosed sales" (PAY-008). Sales Invoice Payment is
+# always filtered parenttype = 'POS Invoice'.
+workbook: {id: ury_db09_payments_cashup, title: "URY DB09 Payments And Cashup", module: "URY", required_apps: [ury]}
+queries:
+  - id: fact_invoices
+    title: "fact_invoices"
+    table: "POS Invoice"
+    filters:
+      - {column: docstatus, op: "=", value: 1}
+      - {column: is_return, op: "=", value: 0}
+    mutate:
+      - {as: population, type: String, expr: "if_else(status == 'Consolidated', 'Consolidated', 'Paid')"}
+      - {as: pax, type: Integer, expr: "no_of_pax.cast(\"int64\")"}
+      - {as: hour_of_day, type: Integer, expr: "hour(posting_time)"}
+      - {as: weekday, type: String, expr: "day_name(posting_date)"}
+      - {as: is_zero_bill, type: Integer, expr: "if_else(grand_total == 0, 1, 0)"}
+      - {as: has_discount, type: Integer, expr: "if_else(discount_amount > 0, 1, 0)"}
+    select: [name, posting_date, hour_of_day, weekday, branch, company, order_type, waiter, cashier, custom_waiter_employee, population, pos_profile, restaurant_table, customer, selling_price_list, total, net_total, grand_total, rounded_total, discount_amount, paid_amount, change_amount, total_qty, pax, is_zero_bill, has_discount]
+
+
+  # fact_payments (builder, T1). Grain: one tender line of a submitted POS Invoice. parenttype filter is mandatory.
+  - id: fact_payments
+    title: "fact_payments"
+    table: "Sales Invoice Payment"
+    joins:
+      - {table: "POS Invoice", type: inner, on: [parent, name], columns: [posting_date, branch, company, order_type, cashier, status]}
+    filters:
+      - {column: parenttype, op: "=", value: "POS Invoice"}
+      - {column: docstatus, op: "=", value: 1}
+    mutate:
+      - {as: population, type: String, expr: "if_else(status == 'Consolidated', 'Consolidated', 'Paid')"}
+    select: [name, parent, posting_date, branch, company, order_type, cashier, population, mode_of_payment, amount]
+
+  # fact_closing_details (builder, T1 structure / demo flat). Grain: one mode-of-payment row of a submitted POS Closing
+  # Entry. branch comes from the POS Opening Entry (POS Closing Entry.branch is NULL on 101/101). Covers only
+  # CONSOLIDATED invoices: the 1075 Paid invoices are in no closing yet.
+  - id: fact_closing_details
+    title: "fact_closing_details"
+    table: "POS Closing Entry Detail"
+    joins:
+      - {table: "POS Closing Entry", type: inner, on: [parent, name], columns: [posting_date, user, pos_profile, pos_opening_entry, company, period_start_date, period_end_date]}
+      - {table: "POS Opening Entry", type: left, on: [pos_opening_entry, name], columns: [branch]}
+    filters:
+      - {column: docstatus, op: "=", value: 1}
+    mutate:
+      - {as: has_variance, type: Integer, expr: "if_else(difference != 0, 1, 0)"}
+    select: [name, parent, posting_date, user, pos_profile, branch, company, period_start_date, period_end_date, mode_of_payment, opening_amount, expected_amount, closing_amount, difference, has_variance]
+
+  # ---------------------------------------------------------------- KITCHEN / KOT
+  # fact_kot_headers (builder, T2). Grain: one submitted URY KOT. The SLA target is joined from POS Profile
+  # (custom_kot_warning_time: 15 'URY', 10 'URY Branch'). prod_minutes = legacy production_time (MINUTES, text);
+charts:
+  - {id: db09_tender, title: "Tendered Amount", query: fact_payments, type: Number,
+     y: [{column: amount, agg: sum, as: Tendered, format: currency}, {column: parent, agg: count, as: Tender Lines}]}
+  - {id: db09_collected, title: "Collected vs Billed", query: fact_invoices, type: Number,
+     y: [{column: paid_amount, agg: sum, as: Paid Amount, format: currency}, {column: change_amount, agg: sum, as: Change Given, format: currency}, {column: rounded_total, agg: sum, as: Billed Rounded, format: currency}]}
+  - {id: db09_unclosed, title: "Unclosed Sales (Paid Bills)", query: fact_invoices, type: Number,
+     filters: [{column: population, op: "=", value: "Paid"}],
+     y: [{column: net_total, agg: sum, as: Unclosed Net Sales, format: currency}, {column: name, agg: count, as: Unclosed Bills}]}
+  - {id: db09_mode, title: "Tender Mix by Mode", query: fact_payments, type: Donut, limit: 10,
+     x: mode_of_payment, y: [{column: amount, agg: sum, as: Tendered}], order: [{by: Tendered, dir: desc}]}
+  - {id: db09_mode_ot, title: "Tender by Order Type and Mode", query: fact_payments, type: Bar, limit: 50, stack: true,
+     x: order_type, split_by: {column: mode_of_payment, max: 6}, y: [{column: amount, agg: sum, as: Tendered}]}
+  - {id: db09_exp_counted, title: "Expected vs Counted by Day", query: fact_closing_details, type: Line, limit: 366,
+     x: {column: posting_date, granularity: day},
+     y: [{column: expected_amount, agg: sum, as: Expected}, {column: closing_amount, agg: sum, as: Counted}]}
+  - {id: db09_variance, title: "Cash-up Variance (T3)", query: fact_closing_details, type: Number,
+     y: [{column: difference, agg: sum, as: Variance, format: currency}, {column: has_variance, agg: sum, as: Lines With Variance}]}
+  - {id: db09_cashier, title: "Net Sales by Cashier", query: fact_invoices, type: Row, limit: 15,
+     x: cashier, y: [{column: net_total, agg: sum, as: Net Sales}], order: [{by: Net Sales, dir: desc}]}
+dashboards:
+  - id: payments_cashup
+    title: "Payments and Cash-up"
+    filters:
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"},
+         applies_to: {fact_payments: posting_date, fact_invoices: posting_date, fact_closing_details: posting_date}}
+      - {id: f_branch, label: Branch, type: string, icon: building-2,
+         applies_to: {fact_payments: branch, fact_invoices: branch, fact_closing_details: branch}}
+      - {id: f_order_type, label: Order Type, type: string, icon: utensils,
+         applies_to: {fact_payments: order_type, fact_invoices: order_type}}
+      - {id: f_mode, label: Mode of Payment, type: string, icon: credit-card,
+         applies_to: {fact_payments: mode_of_payment, fact_closing_details: mode_of_payment}}
+    items:
+      - {chart: db09_tender, x: 0, y: 1, w: 7, h: 3}
+      - {chart: db09_collected, x: 7, y: 1, w: 7, h: 3}
+      - {chart: db09_unclosed, x: 14, y: 1, w: 6, h: 3}
+      - {chart: db09_mode, x: 0, y: 4, w: 7, h: 9}
+      - {chart: db09_mode_ot, x: 7, y: 4, w: 13, h: 9}
+      - {chart: db09_exp_counted, x: 0, y: 13, w: 12, h: 8}
+      - {chart: db09_variance, x: 12, y: 13, w: 8, h: 3}
+      - {chart: db09_cashier, x: 12, y: 16, w: 8, h: 5}
+      - {text: "**T3** All 308 closing lines balance to 0 on this site (seeded). Closings cover Consolidated bills only; Paid bills are 'unclosed sales'. Closing branch comes from the POS Opening Entry.", x: 0, y: 21, w: 20, h: 2}

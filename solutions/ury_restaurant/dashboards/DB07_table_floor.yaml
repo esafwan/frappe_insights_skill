@@ -1,0 +1,83 @@
+# DB07 Table & floor timing (audience: floor/FOH manager, branch manager). Levels: branch, waiter, table/room.
+# Queries are copied verbatim from semantic_layer.yaml: fact_table_sessions, dim_table, fact_invoices.
+# Population rules: covers (db07_covers) Paid only; dwell uses dwell_valid = 1 only (seeded caveat, see banner).
+workbook: {id: ury_db07_table_floor, title: "URY DB07 Table And Floor", module: "URY", required_apps: [ury]}
+queries:
+  - id: fact_invoices
+    title: "fact_invoices"
+    table: "POS Invoice"
+    filters:
+      - {column: docstatus, op: "=", value: 1}
+      - {column: is_return, op: "=", value: 0}
+    mutate:
+      - {as: population, type: String, expr: "if_else(status == 'Consolidated', 'Consolidated', 'Paid')"}
+      - {as: pax, type: Integer, expr: "no_of_pax.cast(\"int64\")"}
+      - {as: hour_of_day, type: Integer, expr: "hour(posting_time)"}
+      - {as: weekday, type: String, expr: "day_name(posting_date)"}
+      - {as: is_zero_bill, type: Integer, expr: "if_else(grand_total == 0, 1, 0)"}
+      - {as: has_discount, type: Integer, expr: "if_else(discount_amount > 0, 1, 0)"}
+    select: [name, posting_date, hour_of_day, weekday, branch, company, order_type, waiter, cashier, custom_waiter_employee, population, pos_profile, restaurant_table, customer, selling_price_list, total, net_total, grand_total, rounded_total, discount_amount, paid_amount, change_amount, total_qty, pax, is_zero_bill, has_discount]
+
+  # fact_cancellations (builder, T1). Grain: one cancelled POS Invoice (docstatus = 2). Value lost = SUM(grand_total).
+
+  # fact_table_sessions (sql, T2/T3). Grain: one submitted Dine In POS Invoice with its table, room and seats.
+  # dwell_minutes = total_spend_time ('HH:MM:SS' text, = invoice creation -> submit, NOT seat -> clear).
+  # dwell_valid = 1 only for 0 < dwell <= 480 min. Why sql: TIME_TO_SEC on a text duration, and room/seats come from
+  # URY Table while the invoice room field is half empty. Date column: posting_date.
+  - id: fact_table_sessions
+    title: "fact_table_sessions"
+    sql: "SELECT pi.name, pi.posting_date, HOUR(pi.posting_time) AS hour_of_day, DAYNAME(pi.posting_date) AS weekday, pi.branch, pi.company, pi.waiter, CASE WHEN pi.status = 'Consolidated' THEN 'Consolidated' ELSE 'Paid' END AS population, pi.restaurant_table, COALESCE(t.restaurant_room, 'No room') AS room, t.no_of_seats, COALESCE(t.is_take_away, 0) AS is_take_away, pi.net_total, CAST(COALESCE(NULLIF(pi.no_of_pax, ''), '0') AS UNSIGNED) AS pax, TIME_TO_SEC(pi.total_spend_time) / 60 AS dwell_minutes, CASE WHEN TIME_TO_SEC(pi.total_spend_time) > 0 AND TIME_TO_SEC(pi.total_spend_time) <= 28800 THEN 1 ELSE 0 END AS dwell_valid, CASE WHEN CAST(COALESCE(NULLIF(pi.no_of_pax, ''), '0') AS UNSIGNED) > t.no_of_seats THEN 1 ELSE 0 END AS over_capacity FROM `tabPOS Invoice` pi LEFT JOIN `tabURY Table` t ON t.name = pi.restaurant_table WHERE pi.docstatus = 1 AND pi.is_return = 0 AND pi.order_type = 'Dine In'"
+
+  # dim_table (builder, T1 snapshot). Grain: one URY Table. occupied is a LIVE flag (no history).
+  - id: dim_table
+    title: "dim_table"
+    table: "URY Table"
+    select: [name, branch, restaurant, restaurant_room, no_of_seats, minimum_seating, is_take_away, occupied, latest_invoice_time]
+
+charts:
+  # S1 Floor (T1)
+  - {id: db07_kpi, title: "Dine-in Bills and Sales", query: fact_table_sessions, type: Number,
+     filters: [{column: is_take_away, op: "=", value: 0}],
+     y: [{column: name, agg: count, as: "Dine-in Bills"}, {column: net_total, agg: sum, as: "Net Sales", format: currency}]}
+  - {id: db07_occupied, title: "Tables Occupied Now", query: dim_table, type: Number,
+     filters: [{column: is_take_away, op: "=", value: 0}],
+     y: [{column: occupied, agg: sum, as: "Occupied"}, {column: name, agg: count, as: "Tables"}]}
+  # S2 Revenue by place
+  - {id: db07_room, title: "Revenue by Room", query: fact_table_sessions, type: Donut,
+     filters: [{column: is_take_away, op: "=", value: 0}],
+     x: room, y: [{column: net_total, agg: sum, as: "Net Sales"}]}
+  - {id: db07_table, title: "Revenue by Table (Top 20)", query: fact_table_sessions, type: Row, limit: 20,
+     filters: [{column: is_take_away, op: "=", value: 0}],
+     x: restaurant_table, y: [{column: net_total, agg: sum, as: "Net Sales"}], order: [{by: "Net Sales", dir: desc}]}
+  # S3 Covers (T2): Paid only, dine-in, pax > 0
+  - {id: db07_covers, title: "Covers and Spend per Cover (T2)", query: fact_invoices, type: Number,
+     filters: [{column: order_type, op: "=", value: "Dine In"}, {column: population, op: "=", value: "Paid"}, {column: pax, op: ">", value: 0}],
+     y: [{column: pax, agg: sum, as: "Covers"}, {expr: "sum(net_total) / sum(pax)", as: "Spend per Cover", format: currency}]}
+  # S4 Dwell (T2): valid dwell only; the all/valid counts live in db07_dq
+  - {id: db07_dwell, title: "Average Dwell Minutes (T2)", query: fact_table_sessions, type: Number,
+     filters: [{column: dwell_valid, op: "=", value: 1}],
+     y: [{column: dwell_minutes, agg: avg, as: "Dwell (valid)"}]}
+  - {id: db07_dq, title: "Dwell Data Coverage (T2)", query: fact_table_sessions, type: Number,
+     y: [{column: dwell_valid, agg: sum, as: "Valid Bills"}, {column: name, agg: count, as: "All Bills"}]}
+  - {id: db07_turns, title: "Table Turns per Day (T2)", query: fact_table_sessions, type: Line, limit: 366,
+     filters: [{column: is_take_away, op: "=", value: 0}],
+     x: {column: posting_date, granularity: day},
+     y: [{expr: "count(name) / count_distinct(restaurant_table)", as: "Turns per Table"}]}
+dashboards:
+  - id: db07_table_floor
+    title: "URY DB07 Table And Floor"
+    filters:
+      - {id: f_date, label: Date, type: date, icon: calendar, applies_to: {fact_table_sessions: posting_date, fact_invoices: posting_date}}
+      - {id: f_branch, label: Branch, type: string, icon: store, applies_to: {fact_table_sessions: branch, dim_table: branch, fact_invoices: branch}}
+      - {id: f_waiter, label: Waiter, type: string, icon: user, applies_to: {fact_table_sessions: waiter, fact_invoices: waiter}}
+      - {id: f_population, label: Population, type: string, icon: users, applies_to: {fact_table_sessions: population, fact_invoices: population}}
+    items:
+      - {chart: db07_kpi, x: 0, y: 1, w: 10, h: 3}
+      - {chart: db07_occupied, x: 10, y: 1, w: 10, h: 3}
+      - {chart: db07_room, x: 0, y: 4, w: 8, h: 9}
+      - {chart: db07_table, x: 8, y: 4, w: 12, h: 9}
+      - {chart: db07_covers, x: 0, y: 13, w: 10, h: 3}
+      - {chart: db07_dwell, x: 10, y: 13, w: 10, h: 3}
+      - {chart: db07_dq, x: 0, y: 16, w: 20, h: 3}
+      - {chart: db07_turns, x: 0, y: 19, w: 20, h: 7}
+      - {text: "<p><b>T2</b> Dwell (TBL-004) = invoice creation to payment, not seat to clear; half the demo dine-in bills have 00:00:00 and the rest are seeded at about 30 min. Covers (SAL-015/016) are Paid bills only. <b>T3</b> TBL-008 over-capacity and TBL-011 service response (4 requests) are too small to chart. <b>T4</b> TBL-009 RevPASH and TBL-010 utilisation need opening hours (R9) and seat/clear stamps (R5).</p>", x: 0, y: 26, w: 20, h: 3}

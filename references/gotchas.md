@@ -70,6 +70,15 @@ Each trap: symptom, cause, fix, proof. Only evidence-backed traps are listed; `(
 31. **Test with the right runner.** `uv run --with pytest python -m pytest -q skills/frappe-insights/tests` from the skill repo root. Proof: run from the skill repo root.
 32. **v2 doctypes and `api/dashboards.py` top half.** Never use for v3 work. Owner: [v2-v3-traps.md](v2-v3-traps.md).
 
+## 9. One-call API
+
+41. **`build` write refused: confirm token.** Symptom: `error.exit_code` 3 "confirm token required" or "does not match". Cause: prune or title adoption without the token of an identical dry run, or flags/plan changed since. Fix: dry run again, pass `confirm=result["confirm"]`. Owner: [api.md](api.md). Proof: (covered by tests: `tests/test_api.py`).
+42. **Healed spec is not saved.** `build`/`heal` return the fixed spec in `result["spec"]`; the file on disk is unchanged. Fix: write it back, else the next run re-heals. Owner: [api.md](api.md). Proof: read from code.
+43. **`needs_decision` is never auto-applied.** Unknown table/column/agg and plan conflicts need a choice; apply an alternative's `patch` with `heal.apply_patch`. Owner: [api.md](api.md). Proof: (covered by tests: `tests/test_heal.py`).
+44. **`export` is not a spec.** It is the compiled envelope with live names and a `lossy` list; do not feed it to lint or `apply`. Owner: [api.md](api.md). Proof: read from code.
+45. **Workbook ref ambiguous (exit 3).** Several workbooks match a title or marker; use the live name. A title is not normalised to a marker. Owner: [api.md](api.md). Proof: (covered by tests: `tests/test_export.py`).
+46. **Offline `build` looks like success.** With no `INSIGHTS_*` env it stops after compile with `ok=True` and `plan=None`; nothing was planned or written. Owner: [api.md](api.md). Proof: read from code.
+
 ## Unverified
 
 - Gotcha 3 mechanism; 12 sign; 15, 16, 19, 21 (Tier A render).

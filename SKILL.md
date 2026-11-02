@@ -41,6 +41,10 @@ Exit codes: 0 ok, 1 lint/verify failure, 2 usage/parse, 3 live conflict, 4 auth/
 | Link it in desk | apply, verify, then `desk --dashboard <live name> --app <app path>`, then run the printed `fdesk` commands (frappe-desk skill) |
 | Ship inside an app | `ship --app PATH [--templates-dir DIR] [--standard --forward]` (`references/api-shipping.md`) |
 | YAML to JSON | `fmt --to json` |
+| One call: build, heal, review, export | `build --spec s.yaml [--write]`, `bulk`, `review --workbook REF`, `export --workbook REF`, `heal` (`references/api.md`) |
+
+## One-call API (for LLM loops)
+`finsights build --spec s.yaml --json` (or `api.build` in Python) does lint, safe self-heal, compile, plan, apply, verify in one call and returns `ok`, `healed`, `needs_decision`, `confirm`. Dry run first; write only when clean. Safe fixes (ids, duplicate titles, chart-type aliases, layout) are applied; unknown tables/columns come back as `needs_decision` with alternatives and are never auto-applied. Prune and title-adoption need the `confirm` token from a dry run. `bulk`, `review`, `export` (faithful compiled envelope, not a spec) and `heal` are in `references/api.md`.
 
 ## Hard rules (each has a reason)
 1. **v3 doctypes only**: Insights Workbook, Insights Query v3, Chart v3, Dashboard v3, Data Source v3, Table v3. The v2 doctypes and old `api/dashboards.py`, `queries.py`, `public.py` do not drive the v3 UI.
@@ -78,6 +82,7 @@ Exit codes: 0 ok, 1 lint/verify failure, 2 usage/parse, 3 live conflict, 4 auth/
 - `references/expressions.md`: hour of day, ratio, cast, date-bucket recipes for query expressions.
 - `references/charts.md`: chart types, `config` shapes, number/trend/breakdown recipes.
 - `references/dashboards-filters.md`: layout, items, filter links, global filters.
+- `references/api.md`: one-call build, bulk, heal, review and export API, self-heal contract, confirm tokens.
 - `references/api-shipping.md`: the HTTP API and shipping a workbook inside an app.
 - `references/desk-integration.md`: Tier A vs Tier B and the exact fdesk commands.
 - `references/permissions.md`: who can read, write, share; sharing without going public.

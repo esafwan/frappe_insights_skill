@@ -1,0 +1,102 @@
+# DB12 Yield & recipe adherence (audience: kitchen/production head). Levels: item, category(raw), branch.
+# Population: yield checks are not invoice-based (no Consolidated/Paid split applies). Weighted yield only:
+# SUM(output_qty)/SUM(input_qty)*100 per UOM, never AVG(actual_yield_percent); f_uom defaults to Kg so Kg and Litre are not mixed.
+# Honesty: department (YLD-008) is empty on 66/66 checks (T4); YLD-009/010 and checker EMP are T3 -> banner, no chart.
+# Base queries below are copied verbatim from semantic_layer.yaml (fact_yield_checks, fact_stock_correction).
+workbook: {id: ury_db12_yield_recipe, title: "URY DB12 Yield And Recipe", module: "URY", required_apps: [ury]}
+queries:
+  # fact_stock_correction (builder, T1 on child rows). Grain: one Stock Correction Item of a submitted correction.
+  # Use child amount_difference (header difference_amount is 0 on 20/20: never use it). Negative = shrink.
+  - id: fact_stock_correction
+    title: "fact_stock_correction"
+    table: "Stock Correction Item"
+    joins:
+      - {table: "Stock Correction", type: inner, on: [parent, name], columns: [posting_date, branch, company, reason, period_end_date]}
+    filters:
+      - {column: docstatus, op: "=", value: 1}
+    mutate:
+      - {as: shrink_value, type: Decimal, expr: "if_else(amount_difference < 0, amount_difference, 0)"}
+      - {as: overage_value, type: Decimal, expr: "if_else(amount_difference > 0, amount_difference, 0)"}
+      - {as: qty_diff, type: Decimal, expr: "quantity_difference.cast(\"float64\")"}
+    select: [name, parent, posting_date, branch, company, reason, warehouse, item_code, item_name, item_group, uom, qty, current_qty, qty_diff, valuation_rate, amount, current_amount, amount_difference, shrink_value, overage_value]
+
+  # fact_yield_checks (builder, T1 item level; department EMPTY). Grain: one URY Yield Check (not submittable).
+  # Weighted yield % = SUM(output_qty)/SUM(input_qty)*100 per UOM; never AVG(actual_yield_percent), never mix Kg/Litre.
+  # variance_percent is in percentage POINTS. Tolerance for out_of_tolerance = 5 points (architecture decision).
+  # Date column: checked_on (Datetime).
+  - id: fact_yield_checks
+    title: "fact_yield_checks"
+    table: "URY Yield Check"
+    joins:
+      - {table: "Item", type: left, on: [item, name], columns: [item_name, item_group]}
+    mutate:
+      - {as: expected_output, type: Decimal, expr: "input_qty * standard_yield_percent_snapshot / 100"}
+      - {as: yield_loss_qty, type: Decimal, expr: "input_qty * standard_yield_percent_snapshot / 100 - output_qty"}
+      - {as: below_standard, type: Integer, expr: "if_else(variance_percent < 0, 1, 0)"}
+      - {as: out_of_tolerance, type: Integer, expr: "if_else(variance_percent < -5, 1, 0)"}
+    select: [name, checked_on, branch, company, department, production_unit, item, item_name, item_group, stock_uom, check_type, checked_by, input_qty, output_qty, expected_output, yield_loss_qty, actual_yield_percent, standard_yield_percent_snapshot, variance_percent, below_standard, out_of_tolerance]
+charts:
+  - id: db12_kpi
+    title: "Yield KPIs"
+    query: fact_yield_checks
+    type: Number
+    y:
+      - {expr: "sum(output_qty) / sum(input_qty) * 100", as: Actual Yield Pct}
+      - {expr: "sum(expected_output) / sum(input_qty) * 100", as: Standard Yield Pct}
+      - {expr: "sum(below_standard) / count(name)", as: Share Below Standard}
+      - {expr: "sum(out_of_tolerance) / count(name)", as: Share Out Of Tolerance}
+  - id: db12_gap
+    title: "Yield Gap vs Standard (points)"
+    query: fact_yield_checks
+    type: Bar
+    limit: 30
+    x: item_name
+    y: [{expr: "sum(output_qty - expected_output) / sum(input_qty) * 100", as: Gap Pts}]
+    order: [{by: Gap Pts, dir: asc}]
+  - id: db12_loss
+    title: "Yield Loss Quantity by Item"
+    query: fact_yield_checks
+    type: Row
+    limit: 15
+    x: item_name
+    y: [{column: yield_loss_qty, agg: sum, as: Yield Loss Qty}]
+    order: [{by: Yield Loss Qty, dir: desc}]
+  - id: db12_trend
+    title: "Weekly Yield by Item"
+    query: fact_yield_checks
+    type: Line
+    limit: 366
+    x: {column: checked_on, granularity: week}
+    split_by: {column: item_name, max: 6}
+    y: [{expr: "sum(output_qty) / sum(input_qty) * 100", as: Actual Yield Pct}]
+  - id: db12_count_var
+    title: "Stock Count Variance by Item"
+    query: fact_stock_correction
+    type: Bar
+    limit: 30
+    x: item_name
+    y: [{column: amount_difference, agg: sum, as: Count Variance}]
+    order: [{by: Count Variance, dir: asc}]
+dashboards:
+  - id: yield_recipe
+    title: "Yield And Recipe"
+    filters:
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 12 Months"},
+         layout: {x: 0, y: 0, w: 5, h: 1},
+         applies_to: {fact_yield_checks: checked_on, fact_stock_correction: posting_date}}
+      - {id: f_branch, label: Branch, type: string, icon: building-2,
+         layout: {x: 5, y: 0, w: 5, h: 1},
+         applies_to: {fact_yield_checks: branch, fact_stock_correction: branch}}
+      - {id: f_uom, label: UOM, type: string, icon: scale, default: {op: in, value: ["Kg"]},
+         layout: {x: 10, y: 0, w: 5, h: 1},
+         applies_to: {fact_yield_checks: stock_uom}}
+      - {id: f_item, label: Item, type: string, icon: package,
+         layout: {x: 15, y: 0, w: 5, h: 1},
+         applies_to: {fact_yield_checks: item, fact_stock_correction: item_code}}
+    items:
+      - {chart: db12_kpi, x: 0, y: 1, w: 20, h: 3}
+      - {chart: db12_gap, x: 0, y: 4, w: 10, h: 9}
+      - {chart: db12_loss, x: 10, y: 4, w: 10, h: 9}
+      - {chart: db12_trend, x: 0, y: 13, w: 20, h: 8}
+      - {chart: db12_count_var, x: 0, y: 21, w: 10, h: 7}
+      - {text: "<b>T4</b> YLD-008 yield by department is not shown: department is empty on 66/66 checks (roadmap R8). <b>T3</b> YLD-009 yield loss cost, YLD-010 check cadence compliance and checker accountability (all checks by Administrator) are not shown. Tolerance = 5 points (architecture constant). The UOM filter defaults to Kg so weights and litres are not mixed; the stock count chart is not filtered by UOM.", x: 10, y: 21, w: 10, h: 7}
