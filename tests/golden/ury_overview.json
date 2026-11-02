@@ -1,0 +1,279 @@
+{
+ "dependencies": {
+  "charts": {
+   "ury-sales-daily-sales": {
+    "chart_type": "Line",
+    "config": {
+     "filters": {
+      "filters": [],
+      "logical_operator": "And"
+     },
+     "limit": 366,
+     "order_by": [
+      {
+       "column": {
+        "column_name": "posting_date",
+        "type": "column"
+       },
+       "direction": "asc"
+      }
+     ],
+     "x_axis": {
+      "dimension": {
+       "column_name": "posting_date",
+       "data_type": "Date",
+       "dimension_name": "posting_date",
+       "granularity": "day"
+      }
+     },
+     "y_axis": {
+      "series": [
+       {
+        "measure": {
+         "aggregation": "sum",
+         "column_name": "grand_total",
+         "data_type": "Decimal",
+         "measure_name": "Sales"
+        }
+       }
+      ],
+      "show_data_labels": false
+     }
+    },
+    "folder": null,
+    "name": "ury-sales-daily-sales",
+    "query": "ury-sales-pos-invoices",
+    "sort_order": 1,
+    "title": "Daily Sales",
+    "workbook": "ury-sales"
+   },
+   "ury-sales-kpis": {
+    "chart_type": "Number",
+    "config": {
+     "comparison": true,
+     "date_column": {
+      "column_name": "posting_date",
+      "data_type": "Date",
+      "dimension_name": "posting_date",
+      "granularity": "day"
+     },
+     "filters": {
+      "filters": [],
+      "logical_operator": "And"
+     },
+     "limit": 100,
+     "number_columns": [
+      {
+       "aggregation": "sum",
+       "column_name": "grand_total",
+       "data_type": "Decimal",
+       "format": "currency",
+       "measure_name": "Sales"
+      },
+      {
+       "aggregation": "count",
+       "column_name": "name",
+       "data_type": "Integer",
+       "measure_name": "Invoices"
+      }
+     ],
+     "order_by": [
+      {
+       "column": {
+        "column_name": "posting_date",
+        "type": "column"
+       },
+       "direction": "asc"
+      }
+     ],
+     "sparkline": true
+    },
+    "folder": null,
+    "name": "ury-sales-kpis",
+    "query": "ury-sales-pos-invoices",
+    "sort_order": 0,
+    "title": "Sales KPIs",
+    "workbook": "ury-sales"
+   },
+   "ury-sales-sales-by-branch": {
+    "chart_type": "Row",
+    "config": {
+     "filters": {
+      "filters": [],
+      "logical_operator": "And"
+     },
+     "limit": 10,
+     "order_by": [
+      {
+       "column": {
+        "column_name": "Sales",
+        "type": "column"
+       },
+       "direction": "desc"
+      }
+     ],
+     "x_axis": {
+      "dimension": {
+       "column_name": "branch",
+       "data_type": "String",
+       "dimension_name": "branch"
+      }
+     },
+     "y_axis": {
+      "series": [
+       {
+        "measure": {
+         "aggregation": "sum",
+         "column_name": "grand_total",
+         "data_type": "Decimal",
+         "measure_name": "Sales"
+        }
+       }
+      ],
+      "show_data_labels": false
+     }
+    },
+    "folder": null,
+    "name": "ury-sales-sales-by-branch",
+    "query": "ury-sales-pos-invoices",
+    "sort_order": 2,
+    "title": "Sales by Branch",
+    "workbook": "ury-sales"
+   }
+  },
+  "dashboards": {
+   "ury-sales-overview": {
+    "items": [
+     {
+      "default_operator": "within",
+      "default_value": "Last 30 days",
+      "filter_name": "Date",
+      "filter_type": "Date",
+      "icon": "calendar",
+      "layout": {
+       "h": 1,
+       "i": "filter-f-date",
+       "w": 4,
+       "x": 0,
+       "y": 0
+      },
+      "links": {
+       "ury-sales-daily-sales": "`ury-sales-pos-invoices`.`posting_date`",
+       "ury-sales-kpis": "`ury-sales-pos-invoices`.`posting_date`",
+       "ury-sales-sales-by-branch": "`ury-sales-pos-invoices`.`posting_date`"
+      },
+      "type": "filter"
+     },
+     {
+      "filter_name": "Branch",
+      "filter_type": "String",
+      "icon": "store",
+      "layout": {
+       "h": 1,
+       "i": "filter-f-branch",
+       "w": 4,
+       "x": 4,
+       "y": 0
+      },
+      "links": {
+       "ury-sales-daily-sales": "`ury-sales-pos-invoices`.`branch`",
+       "ury-sales-kpis": "`ury-sales-pos-invoices`.`branch`",
+       "ury-sales-sales-by-branch": "`ury-sales-pos-invoices`.`branch`"
+      },
+      "type": "filter"
+     },
+     {
+      "chart": "ury-sales-kpis",
+      "layout": {
+       "h": 3,
+       "i": "chart-kpis",
+       "w": 20,
+       "x": 0,
+       "y": 1
+      },
+      "type": "chart"
+     },
+     {
+      "chart": "ury-sales-daily-sales",
+      "layout": {
+       "h": 9,
+       "i": "chart-daily-sales",
+       "w": 12,
+       "x": 0,
+       "y": 4
+      },
+      "type": "chart"
+     },
+     {
+      "chart": "ury-sales-sales-by-branch",
+      "layout": {
+       "h": 9,
+       "i": "chart-sales-by-branch",
+       "w": 8,
+       "x": 12,
+       "y": 4
+      },
+      "type": "chart"
+     }
+    ],
+    "name": "ury-sales-overview",
+    "title": "URY Daily Sales",
+    "workbook": "ury-sales"
+   }
+  },
+  "folders": [],
+  "queries": {
+   "ury-sales-pos-invoices": {
+    "folder": null,
+    "is_builder_query": 1,
+    "is_native_query": 0,
+    "is_script_query": 0,
+    "name": "ury-sales-pos-invoices",
+    "operations": [
+     {
+      "table": {
+       "data_source": "Site DB",
+       "table_name": "tabPOS Invoice",
+       "type": "table"
+      },
+      "type": "source"
+     },
+     {
+      "filters": [
+       {
+        "column": {
+         "column_name": "docstatus",
+         "type": "column"
+        },
+        "operator": "=",
+        "value": 1
+       }
+      ],
+      "logical_operator": "And",
+      "type": "filter_group"
+     },
+     {
+      "column_names": [
+       "posting_date",
+       "grand_total",
+       "name",
+       "branch"
+      ],
+      "type": "select"
+     }
+    ],
+    "sort_order": 0,
+    "title": "POS Invoices",
+    "use_live_connection": 1,
+    "workbook": "ury-sales"
+   }
+  }
+ },
+ "doc": {
+  "name": "ury-sales",
+  "title": "URY Sales"
+ },
+ "name": "ury-sales",
+ "type": "Workbook",
+ "version": "1.0"
+}
