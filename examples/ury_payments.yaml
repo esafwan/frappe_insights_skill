@@ -1,0 +1,76 @@
+# Payments and cash-up (research/U1_ury_sales_plan.md D4: S18, S19, S20, S21, S22 + cancellations).
+# Traps: Sales Invoice Payment holds rows for POS Invoice AND Sales Invoice parents -> parenttype = 'POS Invoice' always;
+# child docstatus mirrors the parent, so docstatus = 1 is the submitted-parent filter; never filter status = Paid.
+workbook: {id: ury_payments, title: "URY Payments", module: "URY", required_apps: [ury]}
+queries:
+  - id: pay_rows
+    title: "POS Invoice Payments"
+    table: "Sales Invoice Payment"
+    filters:
+      - {column: parenttype, op: "=", value: "POS Invoice"}
+      - {column: docstatus, op: "=", value: 1}
+    joins:
+      - {table: "POS Invoice", type: inner, on: [parent, name], columns: [posting_date, order_type]}
+    select: [name, parent, mode_of_payment, amount, posting_date, order_type]
+  - id: closing_rows
+    title: "POS Closing Entry Detail"
+    table: "POS Closing Entry Detail"
+    filters:
+      - {column: docstatus, op: "=", value: 1}
+    joins:
+      - {table: "POS Closing Entry", type: inner, on: [parent, name], columns: [posting_date, user]}
+    select: [name, parent, mode_of_payment, expected_amount, closing_amount, difference, posting_date, user]
+  - id: closings
+    title: "POS Closing Entries"
+    table: "POS Closing Entry"
+    filters:
+      - {column: docstatus, op: "=", value: 1}
+    select: [name, posting_date, user, pos_profile, grand_total, net_total, total_quantity, period_start_date, period_end_date]
+  - id: cancelled_invoices
+    title: "Cancelled POS Invoices"
+    table: "POS Invoice"
+    filters:
+      - {column: docstatus, op: "=", value: 2}
+    select: [name, posting_date, grand_total, cancel_reason]
+charts:
+  - {id: kpi_tendered, title: "Payments Summary", query: pay_rows, type: Number, comparison: true, sparkline: true,
+     date: {column: posting_date, granularity: day},
+     y: [{column: amount, agg: sum, as: Tendered, format: currency}, {column: parent, agg: count, as: Tender Lines}]}
+  - {id: kpi_variance, title: "Cash-up Variance", query: closing_rows, type: Number,
+     date: {column: posting_date, granularity: day},
+     y: [{column: difference, agg: sum, as: Variance, format: currency}, {column: parent, agg: count, as: Closing Lines}]}
+  - {id: mode_mix, title: "Payment Mode Mix", query: pay_rows, type: Donut, limit: 10,
+     x: mode_of_payment, y: [{column: amount, agg: sum, as: Tendered}], order: [{by: Tendered, dir: desc}]}
+  - {id: mode_by_order_type, title: "Payment Mode by Order Type", query: pay_rows, type: Bar, limit: 50, stack: true,
+     x: order_type, split_by: {column: mode_of_payment, max: 6}, y: [{column: amount, agg: sum, as: Tendered}]}
+  - {id: daily_payments, title: "Daily Payments", query: pay_rows, type: Line, limit: 366,
+     x: {column: posting_date, granularity: day}, y: [{column: amount, agg: sum, as: Tendered}]}
+  - {id: expected_vs_counted, title: "Expected vs Counted by Day", query: closing_rows, type: Line, limit: 366,
+     x: {column: posting_date, granularity: day},
+     y: [{column: expected_amount, agg: sum, as: Expected}, {column: closing_amount, agg: sum, as: Counted}]}
+  - {id: variance_by_user, title: "Variance by Cashier", query: closing_rows, type: Row, limit: 15,
+     x: user, y: [{column: difference, agg: sum, as: Variance}], order: [{by: Variance, dir: desc}]}
+  - {id: shifts, title: "Shift Closings", query: closings, type: Table, limit: 100,
+     rows: [posting_date, user, pos_profile],
+     y: [{column: grand_total, agg: sum, as: Grand Total}, {column: total_quantity, agg: sum, as: Quantity}, {column: name, agg: count, as: Closings}]}
+  - {id: cancellations_by_day, title: "Cancelled Invoices by Day", query: cancelled_invoices, type: Bar, limit: 366,
+     x: {column: posting_date, granularity: day}, y: [{column: name, agg: count, as: Cancelled}]}
+dashboards:
+  - id: payments
+    title: "Payments and Cash-up"
+    filters:
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"},
+         applies_to: {pay_rows: posting_date, closing_rows: posting_date, closings: posting_date, cancelled_invoices: posting_date}}
+      - {id: f_mode, label: Mode of Payment, type: string, icon: credit-card,
+         applies_to: {pay_rows: mode_of_payment, closing_rows: mode_of_payment}}
+    items:
+      - {chart: kpi_tendered, x: 0, y: 1, w: 10, h: 3}
+      - {chart: kpi_variance, x: 10, y: 1, w: 10, h: 3}
+      - {chart: mode_mix, x: 0, y: 4, w: 7, h: 10}
+      - {chart: mode_by_order_type, x: 7, y: 4, w: 13, h: 10}
+      - {chart: daily_payments, x: 0, y: 14, w: 20, h: 8}
+      - {chart: expected_vs_counted, x: 0, y: 22, w: 12, h: 10}
+      - {chart: shifts, x: 12, y: 22, w: 8, h: 10}
+      - {chart: variance_by_user, x: 0, y: 32, w: 10, h: 8}
+      - {chart: cancellations_by_day, x: 10, y: 32, w: 10, h: 8}
+desk: {workspace: "URY", label: "Payments and Cash-up"}

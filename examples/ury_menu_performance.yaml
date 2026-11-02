@@ -1,0 +1,48 @@
+# URY menu performance dashboard (source: research/U1_ury_sales_plan.md S12/S13).
+# POS Invoice Item (base) inner-joined to POS Invoice on parent=name. Revenue = net_amount.
+# Filters: item docstatus=1 (child docstatus mirrors the parent) and joined is_return=0.
+# NEVER filter status=Paid. Joined `docstatus` is not selected: it collides with the item's own column.
+# Query stays row-level; charts aggregate, so both dashboard filters hit the query's FINAL output.
+workbook: {id: ury_menu, title: "URY Menu Performance", module: "URY", required_apps: [ury]}
+queries:
+  - id: menu_items
+    title: "Menu Items Sold"
+    table: "POS Invoice Item"
+    joins:
+      - {table: "POS Invoice", type: inner, on: [parent, name], columns: [posting_date, order_type, is_return]}
+    filters:
+      - {column: docstatus, op: "=", value: 1}
+      - {column: is_return, op: "=", value: 0}
+    select: [item_name, item_group, qty, net_amount, parent, posting_date, order_type]
+charts:
+  - {id: menu_kpis, title: "Menu KPIs", query: menu_items, type: Number,
+     y: [{column: net_amount, agg: sum, as: Revenue, format: currency}, {column: qty, agg: sum, as: Qty}, {column: item_name, agg: count_distinct, as: Items}]}
+  - {id: top_by_revenue, title: "Top Items by Revenue", query: menu_items, type: Row, limit: 10,
+     x: item_name, y: [{column: net_amount, agg: sum, as: Revenue}], order: [{by: Revenue, dir: desc}]}
+  - {id: bottom_by_revenue, title: "Bottom Items by Revenue", query: menu_items, type: Row, limit: 10,
+     x: item_name, y: [{column: net_amount, agg: sum, as: Revenue}], order: [{by: Revenue, dir: asc}]}
+  - {id: top_by_qty, title: "Top Items by Quantity", query: menu_items, type: Bar, limit: 10,
+     x: item_name, y: [{column: qty, agg: sum, as: Qty}], order: [{by: Qty, dir: desc}]}
+  - {id: group_mix, title: "Item Mix by Group", query: menu_items, type: Donut, limit: 12,
+     x: item_group, y: [{column: net_amount, agg: sum, as: Revenue}], order: [{by: Revenue, dir: desc}]}
+  - {id: order_type_mix, title: "Dine In vs Others", query: menu_items, type: Donut, limit: 10,
+     x: order_type, y: [{column: net_amount, agg: sum, as: Revenue}], order: [{by: Revenue, dir: desc}]}
+  - {id: item_table, title: "Item Sales Table", query: menu_items, type: Table, limit: 50,
+     rows: [item_group, item_name],
+     y: [{column: qty, agg: sum, as: Qty}, {column: net_amount, agg: sum, as: Revenue}],
+     order: [{by: Revenue, dir: desc}]}
+dashboards:
+  - id: menu
+    title: "URY Menu Performance"
+    filters:
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"}, applies_to: {menu_items: posting_date}}
+      - {id: f_order_type, label: "Order Type", type: string, icon: tag, applies_to: {menu_items: order_type}}
+    items:
+      - {chart: menu_kpis, x: 0, y: 1, w: 20, h: 3}
+      - {chart: top_by_revenue, x: 0, y: 4, w: 10, h: 9}
+      - {chart: bottom_by_revenue, x: 10, y: 4, w: 10, h: 9}
+      - {chart: top_by_qty, x: 0, y: 13, w: 10, h: 9}
+      - {chart: group_mix, x: 10, y: 13, w: 5, h: 9}
+      - {chart: order_type_mix, x: 15, y: 13, w: 5, h: 9}
+      - {chart: item_table, x: 0, y: 22, w: 20, h: 10}
+desk: {workspace: "URY", label: "Menu Performance"}

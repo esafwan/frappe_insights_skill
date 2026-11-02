@@ -181,6 +181,14 @@ def _find_workbook(compiled, client, adopt):
 	return None
 
 
+def _is_empty_helper(row: dict) -> bool:
+	ops = row.get("operations")
+	if isinstance(ops, str):
+		ops = ops.strip()
+		ops = json.loads(ops) if ops else None
+	return not row.get("title") and not ops
+
+
 def plan_apply(compiled: dict, client, adopt: bool = False, renames: dict | None = None) -> Plan:
 	renames = renames or {}
 	title = compiled["doc"]["title"]
@@ -202,10 +210,16 @@ def plan_apply(compiled: dict, client, adopt: bool = False, renames: dict | None
 	name_map[wb_key] = wb_live
 	deps = compiled.get("dependencies", {})
 	live_by_kind, matched = {}, {}
-	for kind in ("query", "chart", "dashboard"):
+	helpers = set()  # chart data_query helper queries: server-managed, never user content
+	for kind in ("chart", "query", "dashboard"):
 		rows = []
 		if wb_live:
-			rows = client.list_docs(DOCTYPES[kind], filters={"workbook": wb_live}, fields=["name", "title"])
+			fields = ["name", "title"] + {"query": ["operations"], "chart": ["data_query"]}.get(kind, [])
+			rows = client.list_docs(DOCTYPES[kind], filters={"workbook": wb_live}, fields=fields)
+		if kind == "chart":
+			helpers = {r.get("data_query") for r in rows if r.get("data_query")}
+		if kind == "query":
+			rows = [r for r in rows if r["name"] not in helpers and not _is_empty_helper(r)]
 		live_by_kind[kind] = rows
 		matched[kind] = set()
 		for key, doc in (deps.get(DEP_KEY[kind]) or {}).items():
