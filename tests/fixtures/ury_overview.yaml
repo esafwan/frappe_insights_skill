@@ -1,0 +1,26 @@
+workbook: {id: ury_sales, title: "URY Sales", module: "URY", required_apps: [ury]}
+queries:
+  - id: pos_invoices
+    title: "POS Invoices"
+    table: "POS Invoice"
+    filters: [{column: docstatus, op: "=", value: 1}]
+    select: [posting_date, grand_total, name, {column: branch, optional: true}]
+charts:
+  - {id: kpis, title: "Sales KPIs", query: pos_invoices, type: Number, comparison: true, sparkline: true,
+     date: {column: posting_date, granularity: day},
+     y: [{column: grand_total, agg: sum, as: Sales, format: currency}, {column: name, agg: count, as: Invoices}]}
+  - {id: daily_sales, title: "Daily Sales", query: pos_invoices, type: Line, limit: 366,
+     x: {column: posting_date, granularity: day}, y: [{column: grand_total, agg: sum, as: Sales}]}
+  - {id: sales_by_branch, title: "Sales by Branch", query: pos_invoices, type: Row, limit: 10,
+     x: branch, y: [{column: grand_total, agg: sum, as: Sales}], order: [{by: Sales, dir: desc}]}
+dashboards:
+  - id: overview
+    title: "URY Daily Sales"
+    filters:
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"}, applies_to: {pos_invoices: posting_date}}
+      - {id: f_branch, label: Branch, type: string, icon: store, applies_to: {pos_invoices: branch}}
+    items:
+      - {chart: kpis, x: 0, y: 1, w: 20, h: 3}
+      - {chart: daily_sales, x: 0, y: 4, w: 12, h: 9}
+      - {chart: sales_by_branch, x: 12, y: 4, w: 8, h: 9}
+desk: {workspace: "URY", label: "Sales Analytics"}

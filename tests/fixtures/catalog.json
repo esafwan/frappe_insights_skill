@@ -1,0 +1,21 @@
+{
+ "POS Invoice": {
+  "branch": "String",
+  "company": "String",
+  "customer": "String",
+  "docstatus": "Integer",
+  "grand_total": "Decimal",
+  "name": "String",
+  "net_total": "Decimal",
+  "paid_amount": "Decimal",
+  "posting_date": "Date",
+  "status": "String"
+ },
+ "POS Invoice Item": {
+  "amount": "Decimal",
+  "item_code": "String",
+  "item_name": "String",
+  "parent": "String",
+  "qty": "Decimal"
+ }
+}
