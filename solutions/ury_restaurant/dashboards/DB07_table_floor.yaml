@@ -62,7 +62,7 @@ charts:
   - {id: db07_turns, title: "Table Turns per Day (T2)", query: fact_table_sessions, type: Line, limit: 366,
      filters: [{column: is_take_away, op: "=", value: 0}],
      x: {column: posting_date, granularity: day},
-     y: [{expr: "count(name) / count_distinct(restaurant_table)", as: "Turns per Table"}]}
+     y: [{expr: "count(name) / distinct_count(restaurant_table)", as: "Turns per Table"}]}
 dashboards:
   - id: db07_table_floor
     title: "URY DB07 Table And Floor"

@@ -17,10 +17,11 @@ queries:
       - {as: population, type: String, expr: "if_else(status == 'Consolidated', 'Consolidated', 'Paid')"}
       - {as: pax, type: Integer, expr: "no_of_pax.cast(\"int64\")"}
       - {as: hour_of_day, type: Integer, expr: "hour(posting_time)"}
+      - {as: hour_label, type: String, expr: "pad_number(hour(posting_time), 2)"}  # string label: pivot_wider on an Integer column mixes int and string names (IbisTypeError)
       - {as: weekday, type: String, expr: "day_name(posting_date)"}
       - {as: is_zero_bill, type: Integer, expr: "if_else(grand_total == 0, 1, 0)"}
       - {as: has_discount, type: Integer, expr: "if_else(discount_amount > 0, 1, 0)"}
-    select: [name, posting_date, hour_of_day, weekday, branch, company, order_type, waiter, cashier, custom_waiter_employee, population, pos_profile, restaurant_table, customer, selling_price_list, total, net_total, grand_total, rounded_total, discount_amount, paid_amount, change_amount, total_qty, pax, is_zero_bill, has_discount]
+    select: [name, posting_date, hour_of_day, hour_label, weekday, branch, company, order_type, waiter, cashier, custom_waiter_employee, population, pos_profile, restaurant_table, customer, selling_price_list, total, net_total, grand_total, rounded_total, discount_amount, paid_amount, change_amount, total_qty, pax, is_zero_bill, has_discount]
 charts:
   # S1 KPIs (SAL-001, SAL-003, SAL-004): latest month with change vs previous month.
   - {id: db03_kpi, title: "DB03 KPIs (latest month)", query: fact_invoices, type: Number, comparison: true,
@@ -41,7 +42,7 @@ charts:
   - {id: db03_hour, title: "DB03 Bills by hour of day", query: fact_invoices, type: Bar,
      x: hour_of_day, y: [{column: name, agg: count, as: Bills}], split_by: {column: population, max: 2}}
   - {id: db03_grid, title: "DB03 Weekday by hour grid", query: fact_invoices, type: Table,
-     rows: [weekday], columns: [hour_of_day], y: [{column: name, agg: count, as: Bills}]}
+     rows: [weekday], columns: [hour_label], y: [{column: name, agg: count, as: Bills}]}
   # S5 Basket (SAL-004, SAL-001)
   - {id: db03_basket, title: "DB03 Basket", query: fact_invoices, type: Number,
      y: [{expr: "sum(total_qty) / count(name)", as: "Items per bill"},

@@ -62,10 +62,11 @@ queries:
       - {as: population, type: String, expr: "if_else(status == 'Consolidated', 'Consolidated', 'Paid')"}
       - {as: pax, type: Integer, expr: "no_of_pax.cast(\"int64\")"}
       - {as: hour_of_day, type: Integer, expr: "hour(posting_time)"}
+      - {as: hour_label, type: String, expr: "pad_number(hour(posting_time), 2)"}  # string label: pivot_wider on an Integer column mixes int and string names (IbisTypeError)
       - {as: weekday, type: String, expr: "day_name(posting_date)"}
       - {as: is_zero_bill, type: Integer, expr: "if_else(grand_total == 0, 1, 0)"}
       - {as: has_discount, type: Integer, expr: "if_else(discount_amount > 0, 1, 0)"}
-    select: [name, posting_date, hour_of_day, weekday, branch, company, order_type, waiter, cashier, custom_waiter_employee, population, pos_profile, restaurant_table, customer, selling_price_list, total, net_total, grand_total, rounded_total, discount_amount, paid_amount, change_amount, total_qty, pax, is_zero_bill, has_discount]
+    select: [name, posting_date, hour_of_day, hour_label, weekday, branch, company, order_type, waiter, cashier, custom_waiter_employee, population, pos_profile, restaurant_table, customer, selling_price_list, total, net_total, grand_total, rounded_total, discount_amount, paid_amount, change_amount, total_qty, pax, is_zero_bill, has_discount]
 
   # fact_cancellations (builder, T1). Grain: one cancelled POS Invoice (docstatus = 2). Value lost = SUM(grand_total).
   # The waiter is the order owner, NOT necessarily the person who cancelled (canceller not stored).

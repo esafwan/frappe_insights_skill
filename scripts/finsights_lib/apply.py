@@ -116,10 +116,36 @@ def normalise(value):
 	return json.dumps(_strip(value), sort_keys=True, ensure_ascii=False)
 
 
+def norm_dashboard_items(items, name_map=None):
+	"""Single normaliser for dashboard `items`, used by plan diff (apply) and V01 (verify).
+
+	Drops server noise (layout.moved), optionally rewrites chart refs via name_map, and sorts by
+	layout.i so only content/x/y/w/h differences remain.
+	"""
+	if isinstance(items, str):
+		try:
+			items = json.loads(items)
+		except ValueError:
+			return items
+	out = []
+	for it in items or []:
+		it = _strip(it)
+		if name_map and isinstance(it, dict) and it.get("chart"):
+			it["chart"] = name_map.get(it["chart"], it["chart"])
+		out.append(it)
+	return sorted(out, key=lambda i: str((i.get("layout") or {}).get("i", "")) if isinstance(i, dict) else "")
+
+
 def diff_fields(kind: str, desired: dict, live: dict) -> dict:
 	out = {}
 	for f in FIELDS[kind] + ("workbook",):
-		if f in desired and normalise(desired[f]) != normalise(live.get(f)):
+		if f not in desired:
+			continue
+		if kind == "dashboard" and f == "items":
+			a, b = norm_dashboard_items(desired[f]), norm_dashboard_items(live.get(f))
+			if json.dumps(a, sort_keys=True) != json.dumps(b, sort_keys=True):
+				out[f] = desired[f]
+		elif normalise(desired[f]) != normalise(live.get(f)):
 			out[f] = desired[f]
 	return out
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 import http.cookiejar
 import json
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -26,6 +27,24 @@ def _parse_json_fields(doc: dict) -> dict:
 			except ValueError:
 				pass
 	return doc
+
+
+RETRY_DELAYS = (0.4, 0.8, 1.6)
+
+
+def _transient_http(code, raw) -> bool:
+	if code in (502, 503, 504):
+		return True
+	if code != 500:
+		return False
+	text = (raw or b"").decode("utf-8", "replace")
+	if not text.strip() or "SAVEPOINT" in text:
+		return True
+	try:
+		json.loads(text)
+	except ValueError:
+		return True
+	return False
 
 
 _TAG_RE = re.compile(r"<[^>]*>")
@@ -62,7 +81,7 @@ def _first_server_message(payload: dict) -> str:
 
 
 class Client:
-	def __init__(self, base_url, user=None, password=None, api_key=None, api_secret=None, opener=None):
+	def __init__(self, base_url, user=None, password=None, api_key=None, api_secret=None, opener=None, sleep=time.sleep):
 		if not base_url:
 			raise FinsightsError("INSIGHTS_URL is required", 2)
 		self.base_url = base_url.rstrip("/")
@@ -75,6 +94,8 @@ class Client:
 			opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
 		self._opener = opener
 		self._logged_in = False
+		self._sleep = sleep
+		self.retries_used = 0
 
 	def __repr__(self) -> str:
 		return f"Client({self.base_url!r})"
@@ -104,11 +125,13 @@ class Client:
 			text = text.replace(str(x), "***")
 		return text
 
-	def _http_error(self, method, path, e) -> FinsightsError:
+	def _http_error(self, method, path, e, raw=None) -> FinsightsError:
 		code = e.code
 		detail = ""
 		try:
-			payload = json.loads(e.read().decode("utf-8", "replace"))
+			if raw is None:
+				raw = e.read()
+			payload = json.loads(raw.decode("utf-8", "replace"))
 			if isinstance(payload, dict):
 				exc_type = payload.get("exc_type")
 				msg = _first_server_message(payload)
@@ -150,28 +173,55 @@ class Client:
 		if self._api_key and self._api_secret:
 			headers["Authorization"] = f"token {self._api_key}:{self._api_secret}"
 		req = urllib.request.Request(url, data=data, headers=headers, method=method)
-		try:
-			resp = self._opener.open(req, timeout=60)
-			raw = resp.read()
-		except urllib.error.HTTPError as e:
-			err = self._http_error(method, path, e)
-			if (
-				err.status in (401, 403)
-				and _retry
-				and not is_login
-				and self._logged_in
-				and not (self._api_key and self._api_secret)
-				and self._user
-				and self._password
-			):
-				self._logged_in = False
-				self.login()  # one re-login; raises on failure
-				return self._request(method, path, params, body, _retry=False)
-			raise err from None
-		except (urllib.error.URLError, OSError) as e:
-			host = urllib.parse.urlparse(self.base_url).netloc or self.base_url
-			reason = self._scrub(_clean(getattr(e, "reason", e)))
-			raise FinsightsError(f"{method} {path}: cannot reach {host} ({reason})", 4) from None
+		idempotent = (
+			is_login
+			or method == "GET"
+			or (
+				method == "POST"
+				and path.endswith("run_doc_method")
+				and isinstance(body, dict)
+				and body.get("method") == "execute"
+			)
+		)
+		attempt = 0
+		while True:
+			try:
+				resp = self._opener.open(req, timeout=60)
+				raw = resp.read()
+				break
+			except urllib.error.HTTPError as e:
+				try:
+					ebody = e.read()
+				except Exception:
+					ebody = b""
+				err = self._http_error(method, path, e, ebody)
+				if idempotent and attempt < len(RETRY_DELAYS) and _transient_http(err.status, ebody):
+					self._sleep(RETRY_DELAYS[attempt])
+					attempt += 1
+					self.retries_used += 1
+					continue
+				if (
+					err.status in (401, 403)
+					and _retry
+					and not is_login
+					and self._logged_in
+					and not (self._api_key and self._api_secret)
+					and self._user
+					and self._password
+				):
+					self._logged_in = False
+					self.login()  # one re-login; raises on failure
+					return self._request(method, path, params, body, _retry=False)
+				raise err from None
+			except (urllib.error.URLError, OSError) as e:
+				if idempotent and attempt < len(RETRY_DELAYS):
+					self._sleep(RETRY_DELAYS[attempt])
+					attempt += 1
+					self.retries_used += 1
+					continue
+				host = urllib.parse.urlparse(self.base_url).netloc or self.base_url
+				reason = self._scrub(_clean(getattr(e, "reason", e)))
+				raise FinsightsError(f"{method} {path}: cannot reach {host} ({reason})", 4) from None
 		if not raw:
 			return {}
 		try:

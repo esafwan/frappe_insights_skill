@@ -1,4 +1,4 @@
-"""Semantic lint for finsights specs (spec section 3: L01..L28).
+"""Semantic lint for finsights specs (spec section 3: L01..L30).
 
 L01/L03/L04 come from spec.shape_findings; everything else lives here.
 `lint_spec` never raises on malformed input: objects with shape errors are skipped by the
@@ -7,11 +7,12 @@ rules that depend on them, and each rule group is guarded.
 
 from __future__ import annotations
 
+import difflib
 import re
 
 from .common import Finding
 from .schema import (
-	AGGREGATIONS, ALL_FILTER_OPERATORS, CHART_ALIASES, CHART_TYPES, FILTER_COLUMN_TYPES, FILTER_OPERATORS,
+	AGGREGATIONS, ALL_FILTER_OPERATORS, CHART_ALIASES, CHART_TYPES, EXPR_FUNCTIONS, FILTER_COLUMN_TYPES, FILTER_OPERATORS,
 	FILTER_TYPE_KIND, GRANULARITIES, GRID_COLS, JOIN_TYPES, ORDER_DIRS, column_kind, output_schema,
 )
 from .spec import shape_findings
@@ -27,6 +28,14 @@ WITHIN_RE = re.compile(
 )
 NO_CATALOG_MSG = "no catalog; column checks skipped"
 SQL_STR_RE = re.compile(r"'(?:[^'\\]|\\.|'')*'|\"(?:[^\"\\]|\\.)*\"|`[^`]*`|--[^\n]*|/\*.*?\*/", re.S)
+
+# L29: stray HTML specials in text items. Frappe stores `>` `<` `&` HTML-escaped, so the stored item never
+# equals the spec (verify V01 drift). Real tags and existing entities are allowed.
+HTML_TAG_RE = re.compile(r"</?[A-Za-z][^<>]*>|<!--.*?-->", re.S)
+HTML_ENTITY_RE = re.compile(r"&(?:#\d+|#[xX][0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]*);")
+# L30: string literals are blanked before scanning for `name(` calls; a dot before the name means a method.
+EXPR_STR_RE = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"")
+EXPR_CALL_RE = re.compile(r"(?<![.\w])([A-Za-z_]\w*)\s*\(")
 
 
 def _p(base: str, *parts) -> str:
@@ -681,6 +690,62 @@ def _l28(ctx):
 			have |= {_col(c) for c in _list(jn.get("columns")) if _col(c)}
 
 
+def _l29(ctx):
+	for di, d in _dicts(ctx.spec.get("dashboards")):
+		for ii, it in _dicts(d.get("items")):
+			txt = it.get("text")
+			if not isinstance(txt, str):
+				continue
+			rest = HTML_ENTITY_RE.sub(lambda m: " " * len(m.group()), HTML_TAG_RE.sub(lambda m: " " * len(m.group()), txt))
+			for ch in "<>&":
+				i = rest.find(ch)
+				if i < 0:
+					continue
+				ent = {"<": "&lt;", ">": "&gt;", "&": "&amp;"}[ch]
+				ctx.add("L29", "error", _p("", "dashboards", di, "items", ii, "text"),
+					f"text item has a bare `{ch}` at offset {i} (near `{txt[max(0, i - 12):i + 12]}`) that is not part of an HTML tag or entity",
+					f"Frappe stores `{ch}` HTML-escaped so the stored item differs from the spec forever (apply never reaches "
+					f"'no changes', verify reports V01); rewrite with words (e.g. 'above', 'to') or use the entity `{ent}` explicitly")
+
+
+def _l30_check(ctx, expr, ptr):
+	if not isinstance(expr, str):
+		return
+	for m in EXPR_CALL_RE.finditer(EXPR_STR_RE.sub("''", expr)):
+		name = m.group(1)
+		if name in EXPR_FUNCTIONS:
+			continue
+		toks = sorted(name.split("_"))
+		near = [n for n in sorted(EXPR_FUNCTIONS) if sorted(n.split("_")) == toks]  # word-order swaps
+		near += [n for n in difflib.get_close_matches(name, sorted(EXPR_FUNCTIONS), n=3, cutoff=0.6) if n not in near]
+		hint = "use a function the Insights backend exposes"
+		if near:
+			hint = "did you mean " + " or ".join(f"`{n}`" for n in near) + "?"
+		ctx.add("L30", "error", ptr, f"unknown function `{name}` in expression `{expr}`", hint)
+
+
+def _l30(ctx):
+	for qi, q in _dicts(ctx.spec.get("queries")):
+		p = _p("", "queries", qi)
+		if ctx.is_bad(p) or "sql" in q:
+			continue
+		for j, m in _dicts(q.get("mutate")):
+			_l30_check(ctx, m.get("expr"), _p(p, "mutate", j, "expr"))
+		for j, f in _dicts(q.get("filters")):
+			_l30_check(ctx, f.get("expr"), _p(p, "filters", j, "expr"))
+		sm = q.get("summarize")
+		if isinstance(sm, dict):
+			for j, m in _dicts(sm.get("measures")):
+				_l30_check(ctx, m.get("expr"), _p(p, "summarize", "measures", j, "expr"))
+	for ci, c in _dicts(ctx.spec.get("charts")):
+		p = _p("", "charts", ci)
+		if ctx.is_bad(p):
+			continue
+		for j, y in enumerate(_list(c.get("y"))):
+			if isinstance(y, dict):
+				_l30_check(ctx, y.get("expr"), _p(p, "y", j, "expr"))
+
+
 def _guard(fn, ctx):
 	try:
 		fn(ctx)
@@ -716,6 +781,8 @@ def lint_spec(spec, catalog, only=None) -> list:
 	_guard(_l26, ctx)
 	_guard(_l27, ctx)
 	_guard(_l28, ctx)
+	_guard(_l29, ctx)
+	_guard(_l30, ctx)
 	return _finish(ctx.out, only)
 
 

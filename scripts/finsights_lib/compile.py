@@ -41,6 +41,11 @@ def _table_ref(table: str) -> dict:
 
 
 def _filter_rule(f: dict) -> dict:
+	# Falsy values (0, False, "") are passed through verbatim. In Insights 3.15.1 the chart path
+	# (frontend charts/chart.ts:222 -> query.addFilterGroup) does not validate rows, and the backend
+	# (ibis_utils.py:480-518, FILTER_OPERATORS "=" at :109) evaluates `col == 0` correctly. The UI
+	# validator isFilterValid (query/components/filter_utils.ts:74-110) accepts 0 only for Number
+	# columns; for String-typed columns it requires string / string[] values. No rewrite is provably safe.
 	if "expr" in f:
 		return {"expression": _expr(f["expr"])}
 	return {"column": _col(f["column"]), "operator": f["op"], "value": f.get("value")}
@@ -203,8 +208,10 @@ def _chart_config(c: dict, ctype: str, schema: dict) -> dict:
 	elif ctype == "Table":
 		rows = c.get("rows") or ([x] if x else [])
 		cfg["rows"] = [_dimension(r, schema) for r in rows]
-		if c.get("columns"):
-			cfg["columns"] = [_dimension(r, schema) for r in c["columns"]]
+		# Insights 3.15.1 chart.ts addTableChartOperation does config.rows/.columns/.values.filter(...)
+		# unguarded and decides pivot iff columns is non-empty, so all three keys must ALWAYS exist
+		# (shipped workbook_templates carry "columns": [] on flat tables).
+		cfg["columns"] = [_dimension(r, schema) for r in c.get("columns") or []]
 		cfg["values"] = meas
 	# DERIVED/UNVERIFIED (R3 s4: no shipped fixture uses Map/Bubble/Sankey): minimal slots from chart.types.ts
 	elif ctype == "Map":
@@ -299,7 +306,33 @@ def _dashboard(d: dict, wb_name: str, names: dict, cnames: dict, charts_by_id: d
 			lay["i"] = f"text-{tn}"
 			tn += 1
 			items.append({"type": "text", "text": it["text"], "layout": lay})
+	compact_layout(items)
 	return {"name": names[d["id"]], "title": d["title"], "workbook": wb_name, "items": items}
+
+
+def _collides(a: dict, b: dict) -> bool:
+	return not (a["x"] + a["w"] <= b["x"] or b["x"] + b["w"] <= a["x"]
+		or a["y"] + a["h"] <= b["y"] or b["y"] + b["h"] <= a["y"])
+
+
+def compact_layout(items: list) -> list:
+	"""Vertical compaction, in place; x/w/h and item order are untouched, only layout.y changes.
+
+	Port of the grid compaction the Insights dashboard (vue-grid-layout, verticalCompact=true,
+	insights/frontend/src2/dashboard/VueGridLayout.vue) applies before saving, so the stored
+	layout equals what we compile. Algorithm: process items sorted by (y, x) (stable); each one
+	moves up (y -= 1) while y > 0 and it would not collide with an already-placed item, then
+	moves down while it collides. Deterministic and idempotent.
+	"""
+	lays = [it["layout"] for it in items if isinstance(it.get("layout"), dict)]
+	placed = []
+	for lay in sorted(lays, key=lambda l: (l["y"], l["x"])):
+		while lay["y"] > 0 and not any(_collides(lay, o) for o in placed):
+			lay["y"] -= 1
+		while any(_collides(lay, o) for o in placed):
+			lay["y"] += 1
+		placed.append(lay)
+	return items
 
 
 # ---------------------------------------------------------------- entry point

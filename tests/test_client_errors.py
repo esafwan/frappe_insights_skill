@@ -47,6 +47,7 @@ def _client(script, **kw):
 	op = Scripted(script, kw.pop("login_status", None))
 	kw.setdefault("user", "alice")
 	kw.setdefault("password", "hunter2pw")
+	kw.setdefault("sleep", lambda s: None)  # transient errors on GET are retried with backoff: do not wait in tests
 	return Client("http://site.test", opener=op, **kw), op
 
 
@@ -84,9 +85,10 @@ def test_5xx_server_error():
 
 
 def test_network_error_cannot_reach():
-	e, _ = _err([urllib.error.URLError("refused")])
+	# a GET is retried 3 times on network errors (initial attempt + 3 retries = 4 scripted failures)
+	e, _ = _err([urllib.error.URLError("refused")] * 4)
 	assert e.exit_code == 4 and "cannot reach site.test" in str(e)
-	e2, _ = _err([TimeoutError("timed out")])
+	e2, _ = _err([TimeoutError("timed out")] * 4)
 	assert "cannot reach site.test" in str(e2)
 
 
@@ -114,7 +116,7 @@ def test_falls_back_to_exception_then_message_and_truncates():
 
 
 def test_non_json_body_handled():
-	e, _ = _err([(502, b"<html><body>Bad Gateway</body></html>")])
+	e, _ = _err([(502, b"<html><body>Bad Gateway</body></html>")] * 4)  # 502 on GET is retried 3 times
 	assert e.status == 502 and "server error" in str(e) and "<html>" not in str(e)
 
 

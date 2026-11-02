@@ -112,3 +112,20 @@ def output_schema(query: dict, catalog: dict, queries: dict | None = None) -> di
 			out[name] = t
 		cols = out
 	return cols
+
+
+# Expression functions callable by name in Insights expressions (L30). Generated from the backend's
+# ibis/functions.py public defs plus names the evaluator injects (ibis, s, selectors, now_datetime).
+EXPR_FUNCTIONS = frozenset({
+	'abs', 'asc', 'avg', 'case', 'cases', 'ceil', 'coalesce', 'concat', 'constant', 'contains', 'count',
+	'count_if', 'create_buckets', 'date_add', 'date_diff', 'date_sub', 'day', 'day_name', 'day_of_week',
+	'day_of_year', 'desc', 'distinct_count', 'distinct_count_if', 'ends_with', 'filter_first_row', 'find',
+	'fiscal_year_start', 'floor', 'format_date', 'get_retention_data', 'group_concat', 'hour', 'ibis', 'if_else',
+	'if_null', 'is_between', 'is_first_row', 'is_in', 'is_last_row', 'is_not_between', 'is_not_in', 'is_not_set',
+	'is_set', 'json_extract', 'json_value', 'length', 'literal', 'lower', 'max', 'median', 'microsecond', 'min',
+	'minute', 'month', 'month_start', 'next_period_value', 'next_value', 'normalize_json', 'not_contains', 'now',
+	'now_datetime', 'null_if', 'one_if', 'pad_number', 'percentage_change', 'previous_period_value',
+	'previous_value', 'quarter', 'quarter_start', 'replace', 'round', 'row_number', 's', 'second', 'selectors',
+	'sql', 'starts_with', 'substring', 'sum', 'sum_if', 'textsplit', 'time_diff', 'to_inr', 'to_usd', 'today',
+	'upper', 'week_of_year', 'week_start', 'within', 'year', 'year_start',
+})

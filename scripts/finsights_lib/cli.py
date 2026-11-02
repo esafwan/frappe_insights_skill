@@ -73,6 +73,8 @@ def build_parser() -> argparse.ArgumentParser:
 			sp.add_argument("--materialize-data-query", action="store_true")
 		if name == "verify":
 			sp.add_argument("--min-rows", type=int, default=1)
+			sp.add_argument("--deep", action="store_true",
+				help="also run each chart's own data query (source + chart ops), reporting V06/V07")
 
 	sp = add("desk", "print fdesk commands (or the desk Dashboard doc) for the spec's desk section")
 	sp.add_argument("--tier", choices=["url", "island"], default="url")
@@ -318,7 +320,7 @@ def cmd_verify(args) -> int:
 		return rc
 	verify_mod = importlib.import_module("finsights_lib.verify")
 	client = _client()
-	findings = verify_mod.verify(doc, client, min_rows=args.min_rows)
+	findings = verify_mod.verify(doc, client, min_rows=args.min_rows, **({"deep": True} if getattr(args, "deep", False) else {}))
 	bad = [f for f in findings if f.severity == "error"]
 	urls = []
 	if not bad:
