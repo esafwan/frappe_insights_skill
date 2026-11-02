@@ -16,8 +16,9 @@ Fill every line before writing a finsights spec. "n/a" needs a reason. See `refe
 - Layout (20-col grid): filters row 0 ; KPI w20 h3 ; trend w12 h9 ; ranking w8 h9
 - Permissions / data exposure (roles, branch scoping, sensitive tables):
 - Demo-data readiness: row counts per needed field = ___ ; empty fields = ___
-- Validation SQL (read-only) + expected result for the window/filter:
-- Proof file (e.g. proof/sql_truth.txt) + dashboard value observed:
+- Validation SQL (read-only) + expected result for the window/filter (optional; write `N/A, no DB access` if you cannot run SQL, and use the alternative below):
+- Alternative validation (when no DB access): compare dashboard totals with a Frappe report or list view count/sum for the same window/filter: report/list = ___ ; dashboard = ___
+- Proof (optional; SQL output file, or screenshot/notes of the report comparison) + dashboard value observed:
 - Pitfalls checked: grain mix / avg-of-avg / drafts / returns / fan-out / text-typed numbers / slices<=5 / KPI latest-period
 - Desk placement: workspace ___ label ___
 - Unknowns / sign-off (who confirmed the metric definition):

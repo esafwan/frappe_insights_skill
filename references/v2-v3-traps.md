@@ -13,7 +13,7 @@ Insights 3.15.1 ships BOTH generations in one repo. Everything you author is v3.
 | Insights Table / Table Link (child table) | Insights Table v3 / Table Link v3 (standalone) | v2 Table Link has `istable=1` | - |
 | (none) | Insights Workbook, Folder, Team, Team Member, Resource Permission | v3-era but NO `_v3` suffix; never append one | `/insights/workbook`, `/insights/workbook/<n>` |
 
-Sources: `R1 s3`, `insights.py:14-35`, `hooks.py:97-101,123-140`, `src/router.ts:29-36`, `src2/router.ts:21-52`.
+Sources:, `insights.py:14-35`, `hooks.py:97-101,123-140`, `src/router.ts:29-36`, `src2/router.ts:21-52`.
 
 ## API modules
 
@@ -21,7 +21,7 @@ Sources: `R1 s3`, `insights.py:14-35`, `hooks.py:97-101,123-140`, `src/router.ts
 |---|---|---|
 | `workbooks.py` | v3 | usable |
 | `data_sources.py`, `insights.api.run_doc_method` (`api/__init__.py:300`) | v3-compatible | usable; see [api-shipping.md](api-shipping.md) |
-| `dashboards.py` top half, `queries.py`, `public.py`, `home.py` | v2 | never call; they operate on v2 doctypes `SWARM_STATE wave-1 gate`, `R5` |
+| `dashboards.py` top half, `queries.py`, `public.py`, `home.py` | v2 | never call; they operate on v2 doctypes |
 | `v2_migration.py` | bridge | v2 -> v3 copy; tracked by `old_name` on the three v3 doctypes, no status doctype `v2_migration.py:9-10` |
 
 ## Frontend: src vs src2
@@ -31,7 +31,7 @@ Sources: `R1 s3`, `insights.py:14-35`, `hooks.py:97-101,123-140`, `src/router.ts
 | `frontend/src` | v2 | `index_v2.html`, vite entry `insights_v2` `vite.config.js:37` |
 | `frontend/src2` | v3 | `src2/router.ts` |
 
-Trap: older plans and many docs say "frontend/src" for Insights UI. For v3 code, routes, query/chart types, always read `src2`. A route found in `src/router.ts` (`/dashboard`, `/query/build`) is v2 and must not be cited as v3. `R1 note`.
+Trap: older plans and many docs say "frontend/src" for Insights UI. For v3 code, routes, query/chart types, always read `src2`. A route found in `src/router.ts` (`/dashboard`, `/query/build`) is v2 and must not be cited as v3..
 
 ## Routing gate
 

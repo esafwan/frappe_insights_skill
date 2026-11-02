@@ -1,4 +1,4 @@
-# URY menu performance dashboard (source: research/U1_ury_sales_plan.md S12/S13).
+# URY menu performance dashboard.
 # POS Invoice Item (base) inner-joined to POS Invoice on parent=name. Revenue = net_amount.
 # Filters: item docstatus=1 (child docstatus mirrors the parent) and joined is_return=0.
 # NEVER filter status=Paid. Joined `docstatus` is not selected: it collides with the item's own column.

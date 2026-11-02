@@ -10,20 +10,23 @@ Insights v3 stores a Workbook that owns Queries, Charts and Dashboards. The agen
 Frappe v16 + Insights 3.15.1 only. If the site shows `Insights Query` / `Insights Dashboard` (no `v3`), it is v2: stop and say so (`references/v2-v3-traps.md`).
 
 ## The loop
+One sequence, in this order. `<F>` = `<this skill>/scripts/finsights` (python3, stdlib only).
 ```bash
-F=<this skill>/scripts/finsights        # python3, stdlib only
 export INSIGHTS_URL=https://site        # + INSIGHTS_USER/INSIGHTS_PASSWORD, or INSIGHTS_API_KEY/INSIGHTS_API_SECRET
-# 0. plan the analytics first: references/analytics-planning.md (+ templates/plan_template.md)
-# 1. write the spec (examples/*.yaml are models)
-$F --spec s.yaml lint --strict                 # no network; exit 1 on errors
-$F --spec s.yaml compile -o out.json           # inspect; --check FILE exits 1 on drift
-$F --spec s.yaml catalog -o cat.json           # live column snapshot; then lint --catalog cat.json
-$F --spec s.yaml plan                          # GET only: + create / ~ update / - orphan
-$F --spec s.yaml --write apply                 # POST/PUT; dry-run without --write
-$F --spec s.yaml verify                        # GET back, zero diff, run every query, rows >= 1
-$F --spec s.yaml desk --tier url               # prints fdesk commands for the desk link
+# 0. plan the analytics first: references/analytics-planning.md (+ templates/plan_template.md); write the spec (examples/*.yaml are models; grammar: references/spec-format.md)
+F=<this skill>/scripts/finsights
+$F --spec s.yaml catalog -o cat.json           # 1. NEEDS network + INSIGHTS_*: live column snapshot
+$F --spec s.yaml lint --strict --catalog cat.json   # 2. no network; exit 1 on errors
+$F --spec s.yaml compile -o out.json           # 3. no network; inspect; --check FILE exits 1 on drift
+$F --spec s.yaml plan                          # 4. NEEDS INSIGHTS_*: GET only, + create / ~ update / - orphan
+$F --spec s.yaml --write apply                 # 5. NEEDS INSIGHTS_*: POST/PUT; dry-run without --write
+$F --spec s.yaml verify                        # 6. NEEDS INSIGHTS_*: GET back, zero diff, run every query, rows >= 1
+$F --spec s.yaml desk --dashboard <live name> --app <app path>   # 7. prints fdesk commands; never executes them
 ```
-Exit codes: 0 ok, 1 lint/verify failure, 2 usage/parse, 3 live conflict, 4 auth/network, 5 `plan --exit-code` pending. Auth comes from env only, never stored. Add `--json` for machine output. `apply` is idempotent: a second run reports no changes. `finsights_spec.md` section 4 has the full flag list; `finsights <cmd> -h` is authoritative.
+Steps 2 and 3 need no env vars. Step 7 needs none either when `--dashboard` is given; without `--dashboard` and with `INSIGHTS_URL` set, `desk` looks up the live name itself, otherwise it prints a placeholder name.
+**The live dashboard name (a server-generated id, not the spec slug) only exists after `apply --write`.** So desk is always last: apply -> verify -> read the live name from the output -> `desk --dashboard <live name>`. `desk` itself never executes `fdesk`; you review and run the printed commands.
+
+Exit codes: 0 ok, 1 lint/verify failure, 2 usage/parse, 3 live conflict, 4 auth/network, 5 `plan --exit-code` pending. Auth comes from env only, never stored. Add `--json` for machine output. `apply` is idempotent: a second run reports no changes. `references/spec-format.md` has the spec grammar; `finsights <cmd> -h` is the authoritative flag list.
 
 ## Task -> command (details in the references)
 | Task | Command / file |
@@ -34,7 +37,7 @@ Exit codes: 0 ok, 1 lint/verify failure, 2 usage/parse, 3 live conflict, 4 auth/
 | Rename a chart/query | `apply --rename id=OLD TITLE` (children are keyed by workbook + title) |
 | Take over an existing workbook | `apply --adopt`; remove orphans only with `--prune` |
 | Prove it works | `verify --min-rows 1`; opens `/insights/dashboards/<name>` |
-| Link it in desk | `desk --tier url`, then run the printed `fdesk` commands (frappe-desk skill) |
+| Link it in desk | apply, verify, then `desk --dashboard <live name> --app <app path>`, then run the printed `fdesk` commands (frappe-desk skill) |
 | Ship inside an app | `ship --app PATH [--standard --forward]` (`references/api-shipping.md`) |
 | YAML to JSON | `fmt --to json` |
 
@@ -46,10 +49,10 @@ Exit codes: 0 ok, 1 lint/verify failure, 2 usage/parse, 3 live conflict, 4 auth/
 5. **Never write `data_query` or `linked_charts`**: the server creates/maintains them (an empty `data_query` is auto-created per chart; dashboard `linked_charts` is derived from `items`).
 6. **A chart's `config` carries dimensions/measures; the query is the base table plus filters.** Do not pre-aggregate in the query for charts that dashboard filters must hit.
 7. **Row-level query + chart-side aggregation**, so dashboard filters bind to the query's final columns. An aggregated query hides the column the filter needs.
-8. **Number chart: with a date column + comparison it shows the LATEST period, without a date it shows the TOTAL.** Pick deliberately (live finding, `SWARM_STATE.md` 2026-11-02).
+8. **Number chart: with a date column + comparison it shows the LATEST period, without a date it shows the TOTAL.** Pick deliberately (verified live, Frappe 16.54.0 + Insights 3.15.1, 2026-11-02).
 9. **A malformed filter link is dropped silently.** Link shape: `{<chart live name>: "`<query live name>`.`<column>`"}` (backticks). `verify` checks links; a filter with no effect means a bad link.
-10. **Money questions filter `docstatus = 1`.** URY: use POS Invoice with `docstatus=1`; never filter `status = 'Paid'` (about two thirds of rows are `Consolidated`) and always filter `Sales Invoice Payment.parenttype = 'POS Invoice'` (`research/U1_ury_sales_plan.md`).
-11. **Two desk tiers** (`research/C_keynote_clues.md`). Tier A (Frappe 16.54 + Insights 3.15.1, today): dashboard lives at `/insights/dashboards/<name>`, surfaced by a Workspace URL shortcut / Sidebar URL item / Dock URL tile; not embedded. Tier B (Frappe develop islands + Insights develop): `Dashboard.insights_dashboard` embeds it; not loadable here. Detect: `frappe/utils/island*` in the bench frappe and `insights/desk.py` in the insights app.
+10. **Money questions filter `docstatus = 1`.** URY: use POS Invoice with `docstatus=1`; never filter `status = 'Paid'` (about two thirds of rows are `Consolidated`) and always filter `Sales Invoice Payment.parenttype = 'POS Invoice'` (see `references/ury-analytics.md`).
+11. **Two desk tiers** (`references/desk-integration.md`). Tier A (Frappe 16.54.0 + Insights 3.15.1, today; every v16 release): dashboard lives at `/insights/dashboards/<name>`, surfaced by a Workspace URL shortcut / Sidebar URL item / Dock URL tile; not embedded. Tier B (Frappe develop 17.0.0-dev islands + Insights develop): `Dashboard.insights_dashboard` embeds it; islands exist in no v16 release. Detect with the commands in `references/desk-integration.md` section 0.
 12. **Never make a dashboard or chart public to share financial data.** Share with named users/roles (`references/permissions.md`).
 
 ## When something looks wrong

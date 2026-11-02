@@ -2,29 +2,29 @@
 
 Pick-list of questions an agent can answer for URY (restaurant POS on ERPNext) with Insights v3. Method for choosing and validating: [analytics-planning.md](analytics-planning.md). Working payloads: [../examples/ury_overview.yaml](../examples/ury_overview.yaml), [../examples/ury_menu_performance.yaml](../examples/ury_menu_performance.yaml), [../examples/ury_payments.yaml](../examples/ury_payments.yaml).
 
-Paths: `URY`=apps/ury/ury, `ERP`=apps/erpnext/erpnext on bench sa-v16-latest-demo. Every field below was re-confirmed in doctype JSON (`ERP`/`URY` `doctype/<name>/<name>.json`) or `URY/fixtures/custom_field.json` (CF) on 2026-11-02; none failed. Counts are from the demo site (single branch "URY Branch"), `research/U1_ury_sales_plan.md` s0, `research/U2_ury_ops_plan.md` s1.
+Paths: `URY`=apps/ury/ury, `ERP`=apps/erpnext/erpnext in your bench. Every field below was re-confirmed in doctype JSON (`ERP`/`URY` `doctype/<name>/<name>.json`) or `URY/fixtures/custom_field.json` (CF) on 2026-11-02; none failed. Counts are from the demo site (single branch "URY Branch"). Row counts below are demo data examples, not universal facts.
 
 ## 1. Data traps (read before writing any query)
 
 | Trap | Rule | Why |
 |---|---|---|
-| POS Invoice status | Filter `docstatus=1` (and `is_return=0`). NEVER filter `status='Paid'` | 3177 submitted: Consolidated 2102, Paid 1075; Paid-only loses ~2/3 of revenue `U1 s3.1` |
-| Sales Invoice copies | Never union Sales Invoice with POS Invoice | 1329 SIs are consolidated copies of POS Invoices (merge logs 1326); sum doubles `U1 s0` |
-| Payments child | `Sales Invoice Payment`: filter `parenttype='POS Invoice'` (or join parent, `parent=name`) | Same child doctype holds 3278 POS rows + 1778 Sales Invoice rows; Cash 2.35M vs 0.76M `U1 s3.2` |
-| Join grain | Never join items and payments in one query; header sums (`net_total`, `no_of_pax`) never after an item join | PI->items ~3.4 lines, PI->payments split tenders `U1 s3.3` |
-| `no_of_pax` | Data (varchar) on POS Invoice (Int on Sales Invoice); cast to int; "0" on 2118 rows (non-dine-in) | covers math fails or sums text `U1 s3.7` |
-| `net_total` vs `grand_total` | `net_total` excludes tax; reconcile payments to `rounded_total`, not `net_total`; one amount field per dashboard, label it | change_amount>0 on 78 invoices `U1 s3.6` |
-| POS Closing Entry `branch` | Null on all 101 rows; take branch via `pos_opening_entry` -> POS Opening Entry.branch (populated) or `pos_profile` | cash-up per branch otherwise empty `U1 s3.11` |
-| `item_group` hygiene | Snapshot on invoice line; "All Item Groups" holds 430k/799 lines; Dessert/Desserts, Soups/Soups&Salads duplicates; clean item master or map | category chart wrong `U1 s3.10` |
-| URY Order | Doctype has no DB table (query errors); never a source | `U1 s0` |
-| KOT time fields | KOT.`time` is Time stored non-padded ("13:07:1.526008"); `hour(KOT.time)` works (live-confirmed); KOT.`production_time`, `quantity`, `cancelled_qty` are Data (cast); `start_time_prep` equals creation time (not a prep start), use KOT Execution stamps | `U2 s0, s3`; hour() live finding supersedes `U2 s5` unknown |
-| Kitchen durations | Demo Execution stamps are milliseconds apart; `time_diff` truncates to whole seconds so duration charts read 0; sign of `time_diff` (other-col vs col-other) is unverified. Prefer native SQL `TIMESTAMPDIFF(SECOND, started_at, ready_at)` (midnight-safe, allows P90). `date_diff` casts to date (day+ units only) | `U2 s0` as corrected by caller from live runs; unit support `insights ibis/functions.py` |
-| Dine-in count | Dine-in submitted invoices = 995 (1,045 included non-submitted); always pair `order_type='Dine In'` with `docstatus=1` | correction to `U1 s0`/`U2` T2 |
-| Single branch | Demo has one branch; keep the branch dimension for production, charts look trivial here | `U1 s3.11` |
-| Fields empty in demo | `committed_qty` (0), KOT Items `disposition` (all Pending), Yield Check `department`/`production_unit` (0), Stock Correction `difference_amount` (0), POS Closing difference (0 on all 308), line discounts (0), returns (0), loyalty (0), URY Wastage/Stock Movement/Payment Terminal Transaction (0 rows) | build, expect flat/empty `U1 s0`, `U2 s4` |
-| `waiter` | Link to User (not Employee), set on takeaway too; mostly one user (2126). Restrict waiter charts to Dine In; `custom_waiter_employee` only 2275/3275 | `U1 s3.9`, `U2` S1 |
-| `total_spend_time`, `arrived_time` | Data; unreliable in demo (1125 are 00:00:00; arrived_time dated 2026-10-21 for old invoices); do not chart dwell | `U2` T3 |
-| Cancelled invoices | `docstatus=2` carries `cancel_reason` and `grand_total`; `docstatus=1` filters hide them, include deliberately | `U1 s3.5` |
+| POS Invoice status | Filter `docstatus=1` (and `is_return=0`). NEVER filter `status='Paid'` | demo data example: 3177 submitted: Consolidated 2102, Paid 1075; Paid-only loses ~2/3 of revenue |
+| Sales Invoice copies | Never union Sales Invoice with POS Invoice | 1329 SIs are consolidated copies of POS Invoices (merge logs 1326); sum doubles |
+| Payments child | `Sales Invoice Payment`: filter `parenttype='POS Invoice'` (or join parent, `parent=name`) | Same child doctype holds 3278 POS rows + 1778 Sales Invoice rows; Cash 2.35M vs 0.76M |
+| Join grain | Never join items and payments in one query; header sums (`net_total`, `no_of_pax`) never after an item join | PI->items ~3.4 lines, PI->payments split tenders |
+| `no_of_pax` | Data (varchar) on POS Invoice (Int on Sales Invoice); cast to int; "0" on 2118 rows (non-dine-in) | covers math fails or sums text |
+| `net_total` vs `grand_total` | `net_total` excludes tax; reconcile payments to `rounded_total`, not `net_total`; one amount field per dashboard, label it | change_amount>0 on 78 invoices |
+| POS Closing Entry `branch` | Null on all 101 rows; take branch via `pos_opening_entry` -> POS Opening Entry.branch (populated) or `pos_profile` | cash-up per branch otherwise empty |
+| `item_group` hygiene | Snapshot on invoice line; "All Item Groups" holds 430k/799 lines; Dessert/Desserts, Soups/Soups&Salads duplicates; clean item master or map | category chart wrong |
+| URY Order | Doctype has no DB table (query errors); never a source | |
+| KOT time fields | KOT.`time` is Time stored non-padded ("13:07:1.526008"); `hour(KOT.time)` works (live-confirmed); KOT.`production_time`, `quantity`, `cancelled_qty` are Data (cast); `start_time_prep` equals creation time (not a prep start), use KOT Execution stamps |
+| Kitchen durations | Demo Execution stamps are milliseconds apart; `time_diff` truncates to whole seconds so duration charts read 0; sign of `time_diff` (other-col vs col-other) is unverified. Prefer native SQL `TIMESTAMPDIFF(SECOND, started_at, ready_at)` (midnight-safe, allows P90). `date_diff` casts to date (day+ units only) | as corrected by caller from live runs; unit support `insights ibis/functions.py` |
+| Dine-in count | Dine-in submitted invoices = 995 (1,045 included non-submitted); always pair `order_type='Dine In'` with `docstatus=1` | correction to/ T2 |
+| Single branch | Demo has one branch; keep the branch dimension for production, charts look trivial here | |
+| Fields empty in demo | `committed_qty` (0), KOT Items `disposition` (all Pending), Yield Check `department`/`production_unit` (0), Stock Correction `difference_amount` (0), POS Closing difference (0 on all 308), line discounts (0), returns (0), loyalty (0), URY Wastage/Stock Movement/Payment Terminal Transaction (0 rows) | build, expect flat/empty |
+| `waiter` | Link to User (not Employee), set on takeaway too; mostly one user (2126). Restrict waiter charts to Dine In; `custom_waiter_employee` only 2275/3275 | S1 |
+| `total_spend_time`, `arrived_time` | Data; unreliable in demo (1125 are 00:00:00; arrived_time dated 2026-10-21 for old invoices); do not chart dwell | T3 |
+| Cancelled invoices | `docstatus=2` carries `cancel_reason` and `grand_total`; `docstatus=1` filters hide them, include deliberately | |
 
 ## 2. Catalogue
 
@@ -104,7 +104,7 @@ Dropped as not worth a card: S28 loyalty (Loyalty Program 0 rows), S31 POS vs P&
 
 ## 3. Recommended dashboards (20-col grid, Number h=4, charts h=8-10, row widths sum to 20)
 
-Dashboard filters are Date, String, Number only `research/R4_dashboards.md`. Link each filter to the date/string column of every query.
+Dashboard filters are Date, String, Number only. Link each filter to the date/string column of every query.
 
 | Dashboard | Audience | Default filters | Layout (row: [id wN]...) |
 |---|---|---|---|
@@ -117,12 +117,12 @@ Dashboard filters are Date, String, Number only `research/R4_dashboards.md`. Lin
 | Staff (restrict sharing) | Manager | Date; waiter | r1 h8: [S1 w10][S2 w10]; r2 h8: [S3 w10][C3 w10] |
 | Stock, yield, plan | Kitchen lead, owner | Date; item; production_unit | r1 h4: [Y1 avg variance w7][W2 count w7][W4 attainment w6]; r2 h8: [Y1 by item w10][W4 by unit w10]; r3 h8: [Y2 w10][W1 w10, placeholder] |
 
-Cap about 11 items per dashboard (7 charts + 4 numbers). Staff dashboards expose per-person data: Insights does not apply Frappe User Permissions automatically, share only with managers (`research/P_analytics_planning.md` s1 step 8, see [permissions.md](permissions.md)).
+Cap about 11 items per dashboard (7 charts + 4 numbers). Staff dashboards expose per-person data: Insights does not apply Frappe User Permissions automatically, share only with managers (see [permissions.md](permissions.md)).
 
 ## Unverified
-- Sign convention and midnight behaviour of `time_diff` in a `mutate`; P50/P90 are not builder aggregations (native SQL only) `U2 s5`.
+- Sign convention and midnight behaviour of `time_diff` in a `mutate`; P50/P90 are not builder aggregations (native SQL only).
 - Dine-in = 995 submitted is a caller correction not re-queried here.
-- Insights UI behaviour for the `parenttype` filter and child-to-parent Join keys untested `U1 s5`.
+- Insights UI behaviour for the `parenttype` filter and child-to-parent Join keys untested.
 - Reconciliation of PI net_total vs Daily P&L net_sales (S31) not checked.
 - Production sites: item_group tree, real KOT stamps, `total_spend_time` reliability, multi-branch `branch` population unknown.
 - Whether `waiter` maps to `custom_waiter_employee` for per-employee reporting.

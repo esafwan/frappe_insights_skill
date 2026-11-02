@@ -1,4 +1,4 @@
-# Payments and cash-up (research/U1_ury_sales_plan.md D4: S18, S19, S20, S21, S22 + cancellations).
+# Payments and cash-up.
 # Traps: Sales Invoice Payment holds rows for POS Invoice AND Sales Invoice parents -> parenttype = 'POS Invoice' always;
 # child docstatus mirrors the parent, so docstatus = 1 is the submitted-parent filter; never filter status = Paid.
 workbook: {id: ury_payments, title: "URY Payments", module: "URY", required_apps: [ury]}
