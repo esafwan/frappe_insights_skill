@@ -36,6 +36,9 @@ queries:
 
 charts:
   # S1 Floor (T1). KPI row: five tiles w:4, one measure each; occupied-now leads the row
+  - {id: db07_bills, title: "Dine-in bills (count)", query: fact_table_sessions, type: Number,
+     filters: [{column: is_take_away, op: "=", value: 0}],
+     y: [{column: name, agg: count, as: "Dine-in bills"}]}
   - {id: db07_kpi, title: "Net sales (₹)", query: fact_table_sessions, type: Number,
      filters: [{column: is_take_away, op: "=", value: 0}],
      y: [{expr: "sum(net_total).round(0)", as: "Net sales", format: currency}]}
@@ -76,12 +79,13 @@ dashboards:
     items:
       - {text: "<p><b>Tables and floor.</b> Which rooms and tables earn, how many covers you serve and how long guests stay. For floor manager and branch manager. Default period: last 30 days; every filter applies to every chart.</p>", x: 0, y: 0, w: 20, h: 2}
       - {chart: db07_occupied, x: 0, y: 3, w: 4, h: 3}
-      - {chart: db07_kpi, x: 4, y: 3, w: 4, h: 3}
-      - {chart: db07_covers, x: 8, y: 3, w: 4, h: 3}
-      - {chart: db07_spend_cover, x: 12, y: 3, w: 4, h: 3}
-      - {chart: db07_dwell, x: 16, y: 3, w: 4, h: 3}
-      - {text: "<p>Avg time at table is based on dine-in bills with a recorded time (about half).</p>", x: 0, y: 6, w: 20, h: 1}
-      - {chart: db07_room, x: 0, y: 7, w: 8, h: 9}
-      - {chart: db07_table, x: 8, y: 7, w: 12, h: 9}
-      - {chart: db07_turns, x: 0, y: 16, w: 20, h: 7}
-      - {text: "<p><b>Estimate:</b> time at table runs from bill created to bill paid, not seated to cleared; about half of dine-in bills have no time and are left out. Covers count paid bills only.</p><p><b>Not recorded yet:</b> seat utilisation and revenue per seat-hour. Needs opening hours and seat and clear times.</p>", x: 0, y: 23, w: 20, h: 2}
+      - {chart: db07_bills, x: 4, y: 3, w: 4, h: 3}
+      - {chart: db07_kpi, x: 8, y: 3, w: 4, h: 3}
+      - {chart: db07_covers, x: 12, y: 3, w: 4, h: 3}
+      - {chart: db07_spend_cover, x: 16, y: 3, w: 4, h: 3}
+      - {chart: db07_dwell, x: 0, y: 6, w: 4, h: 3}
+      - {text: "<p>Avg time at table is based on dine-in bills with a recorded time (about half).</p>", x: 4, y: 6, w: 16, h: 3}
+      - {chart: db07_room, x: 0, y: 9, w: 8, h: 9}
+      - {chart: db07_table, x: 8, y: 9, w: 12, h: 9}
+      - {chart: db07_turns, x: 0, y: 18, w: 20, h: 7}
+      - {text: "<p><b>Estimate:</b> time at table runs from bill created to bill paid, not seated to cleared; about half of dine-in bills have no time and are left out. Covers count paid bills only.</p><p><b>Not recorded yet:</b> seat utilisation and revenue per seat-hour. Needs opening hours and seat and clear times.</p>", x: 0, y: 25, w: 20, h: 2}

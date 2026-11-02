@@ -116,6 +116,8 @@ charts:
      y: [{column: name, agg: count, as: "Cancelled bills"}]}
   - {id: db02_cancel, title: "Cancelled value (₹)", query: fact_cancellations, type: Number,
      y: [{expr: "(sum(grand_total)).round(0)", as: "Cancelled value (₹)", format: currency}]}
+  - {id: db02_yield_checks, title: "Yield checks done (count)", query: fact_yield_checks, type: Number,
+     y: [{column: name, agg: count, as: "Yield checks done"}]}
   - {id: db02_yield_alert, title: "Yield checks failed (count)", query: fact_yield_checks, type: Number,
      y: [{column: out_of_tolerance, agg: sum, as: "Yield checks failed"}]}
 dashboards:
@@ -141,8 +143,10 @@ dashboards:
       - {chart: db02_kot_prep, x: 10, y: 13, w: 5, h: 3}
       - {chart: db02_sla, x: 15, y: 13, w: 5, h: 3}
       - {text: "<p>Target is the KOT warning time on the POS profile (10 min, 15 for slow items).</p>", x: 0, y: 16, w: 20, h: 1}
-      - {chart: db02_occupied, x: 0, y: 17, w: 4, h: 3}
-      - {chart: db02_tables, x: 4, y: 17, w: 4, h: 3}
-      - {chart: db02_cancel_count, x: 8, y: 17, w: 4, h: 3}
-      - {chart: db02_cancel, x: 12, y: 17, w: 4, h: 3}
-      - {chart: db02_yield_alert, x: 16, y: 17, w: 4, h: 3}
+      - {chart: db02_occupied, x: 0, y: 17, w: 5, h: 3}
+      - {chart: db02_tables, x: 5, y: 17, w: 5, h: 3}
+      - {chart: db02_cancel_count, x: 10, y: 17, w: 5, h: 3}
+      - {chart: db02_cancel, x: 15, y: 17, w: 5, h: 3}
+      - {chart: db02_yield_checks, x: 0, y: 20, w: 5, h: 3}
+      - {chart: db02_yield_alert, x: 5, y: 20, w: 5, h: 3}
+      - {text: "<p>Yield checks failed = checks more than 5 points under the recipe standard.</p>", x: 10, y: 20, w: 10, h: 3}

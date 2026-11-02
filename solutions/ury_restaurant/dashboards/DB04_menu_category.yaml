@@ -44,9 +44,9 @@ charts:
   - {id: db04_cat_rev, title: "Net sales by menu category (₹)", query: fact_sales_lines_enriched, type: Row, limit: 15,
      filters: [{column: menu_category, op: "!=", value: Unassigned}, {column: menu_category, op: "!=", value: Non-menu}],
      x: menu_category, y: [{expr: "sum(net_amount).round(0)", as: "Net sales (₹)"}], order: [{by: "Net sales (₹)", dir: desc}]}
-  - {id: db04_unassigned, title: "Sales with no menu category (₹)", query: fact_sales_lines_enriched, type: Number,
+  - {id: db04_unassigned, title: "Unassigned sales (₹)", query: fact_sales_lines_enriched, type: Number,
      filters: [{column: menu_category, op: "=", value: Unassigned}],
-     y: [{expr: "sum(net_amount).round(0)", as: "Sales with no menu category (₹)", format: currency}]}
+     y: [{expr: "sum(net_amount).round(0)", as: "Unassigned sales (₹)", format: currency}]}
   # S3 Items (MNU-003, MNU-004)
   - {id: db04_top, title: "Top 10 dishes by net sales (₹)", query: fact_sales_lines_enriched, type: Row, limit: 10,
      filters: [{column: category_family, op: "!=", value: Non-menu}, {column: category_family, op: "!=", value: Unassigned}],
@@ -90,7 +90,7 @@ dashboards:
       - {chart: db04_avg_price_kpi, x: 15, y: 3, w: 5, h: 3}
       - {text: "<p><b>Categories</b> - which menu categories earn the most</p>", x: 0, y: 6, w: 20, h: 1}
       - {chart: db04_cat_rev, x: 0, y: 7, w: 12, h: 9}
-      - {chart: db04_unassigned, x: 12, y: 7, w: 8, h: 3}
+      - {chart: db04_unassigned, x: 12, y: 7, w: 5, h: 3}
       - {text: "<p><b>Fix in setup:</b> these items sit in All Item Groups; move them to a menu Item Group to rank them.</p>", x: 12, y: 10, w: 8, h: 2}
       - {text: "<p><b>Dishes</b> - what sells best and worst</p>", x: 0, y: 16, w: 20, h: 1}
       - {chart: db04_top, x: 0, y: 17, w: 10, h: 9}

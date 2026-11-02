@@ -61,10 +61,10 @@ charts:
   - {id: db06_target, title: "Prep time vs target by branch (min)", query: fact_kot_headers, type: Table, limit: 20,
      filters: [{column: order_status, op: "=", value: "Served"}],
      rows: [branch],
-     y: [{column: custom_kot_warning_time, agg: max, as: "Target (min)"}, {expr: "avg(prod_minutes).round(1)", as: "Actual (min)"}]}
+     y: [{column: custom_kot_warning_time, agg: max, as: "Target"}, {expr: "avg(prod_minutes).round(1)", as: "Actual"}]}
   - {id: db06_funnel, title: "KOT stages reached (count)", query: fact_kot_stages, type: Funnel, limit: 10,
      x: stage, y: [{column: kot, agg: count, as: KOTs}]}
-  - {id: db06_cancel_stage, title: "Cancelled KOTs by stage (count)", query: fact_kot_exec, type: Bar, limit: 10,
+  - {id: db06_cancel_stage, title: "Cancelled KOTs by stage (count)", query: fact_kot_exec, type: Row, limit: 10,
      filters: [{column: is_cancelled, op: "=", value: 1}],
      x: cancel_stage, y: [{column: name, agg: count, as: Cancelled}]}
   # db06_voids (Voided Kitchen Qty, always 0) dropped per UX change list.
@@ -91,6 +91,6 @@ dashboards:
       - {text: "<p>Over target = KOT not served within its branch's warning time. Not yet served = no served time recorded.</p>", x: 0, y: 6, w: 20, h: 1}
       - {chart: db06_by_hour, x: 0, y: 7, w: 20, h: 7}
       - {chart: db06_funnel, x: 0, y: 14, w: 8, h: 6}
-      - {chart: db06_cancel_stage, x: 8, y: 14, w: 6, h: 6}
-      - {chart: db06_target, x: 14, y: 14, w: 6, h: 6}
+      - {chart: db06_cancel_stage, x: 8, y: 14, w: 5, h: 6}
+      - {chart: db06_target, x: 13, y: 14, w: 7, h: 6}
       - {text: "<p><b>Not recorded yet:</b> prep time, order-to-serve time and per-dish speed. Kitchen screen start, ready and served times on this site are test data; queue wait needs a queued-at time.</p>", x: 0, y: 20, w: 20, h: 2}

@@ -187,9 +187,9 @@ dashboards:
       - {chart: db01_department, x: 7, y: 13, w: 7, h: 9}
       - {chart: db01_top_items, x: 14, y: 13, w: 6, h: 9}
       - {text: "<p><b>Fix in setup:</b> sales with no department come from items with no production department; set it in Item Production Configuration.</p>", x: 7, y: 22, w: 13, h: 2}
-      - {chart: db01_branch, x: 0, y: 24, w: 8, h: 4}
-      - {chart: db01_gross_profit, x: 8, y: 24, w: 5, h: 3}
-      - {chart: db01_gross_margin, x: 13, y: 24, w: 5, h: 3}
+      - {chart: db01_branch, x: 0, y: 24, w: 10, h: 4}
+      - {chart: db01_gross_profit, x: 10, y: 24, w: 5, h: 3}
+      - {chart: db01_gross_margin, x: 15, y: 24, w: 5, h: 3}
       - {text: "<p><b>Control panel</b> - leakage, kitchen, plan and stock for the period</p>", x: 0, y: 28, w: 20, h: 1}
       - {chart: db01_cancels, x: 0, y: 29, w: 4, h: 3}
       - {chart: db01_sla, x: 4, y: 29, w: 4, h: 3}
