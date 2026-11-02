@@ -40,88 +40,82 @@ queries:
       - {as: population, type: String, expr: "if_else(status == 'Consolidated', 'Consolidated', 'Paid')"}
     select: [name, posting_date, branch, company, order_type, waiter, cashier, population, grand_total, cancel_reason, restaurant_table]
 
-  # fact_closing_details (builder, T1 structure / demo flat). Grain: one mode-of-payment row of a submitted POS Closing
-  # Entry. branch comes from the POS Opening Entry (POS Closing Entry.branch is NULL on 101/101). Covers only
-  # CONSOLIDATED invoices: the 1075 Paid invoices are in no closing yet.
-  - id: fact_closing_details
-    title: "fact_closing_details"
-    table: "POS Closing Entry Detail"
-    joins:
-      - {table: "POS Closing Entry", type: inner, on: [parent, name], columns: [posting_date, user, pos_profile, pos_opening_entry, company, period_start_date, period_end_date]}
-      - {table: "POS Opening Entry", type: left, on: [pos_opening_entry, name], columns: [branch]}
-    filters:
-      - {column: docstatus, op: "=", value: 1}
-    mutate:
-      - {as: has_variance, type: Integer, expr: "if_else(difference != 0, 1, 0)"}
-    select: [name, parent, posting_date, user, pos_profile, branch, company, period_start_date, period_end_date, mode_of_payment, opening_amount, expected_amount, closing_amount, difference, has_variance]
-
-  # fact_daily_pnl (builder, T2: seeded, recipe cost covers ~6-8% of revenue). Grain: one submitted URY Daily P and L
-  # (branch x date). Date column: date.
-  - id: fact_daily_pnl
-    title: "fact_daily_pnl"
-    table: "URY Daily P and L"
-    filters:
-      - {column: docstatus, op: "=", value: 1}
-    select: [name, date, branch, gross_sales, net_sales, cogs, cogs_percent, disposables_cost, gross_profit, gross_profit_percent, total_employee_costs, net_profit]
-
 charts:
-  # S1 Waiters (T1, Paid only)
-  - {id: db08_sales, title: "Net Sales by Waiter", query: fact_invoices, type: Row, limit: 15,
-     x: waiter, y: [{column: net_total, agg: sum, as: Net Sales, format: currency}],
-     order: [{by: Net Sales, dir: desc}],
-     filters: [{column: population, op: "=", value: "Paid"}]}
-  - {id: db08_bills_atv, title: "Bills and Average Ticket by Waiter", query: fact_invoices, type: Table, limit: 20,
+  # Staff performance (UX change list DB08). Person labels still show login ids: full names need a User join in
+  # fact_invoices / fact_cancellations (shared semantic layer), pending. Administrator is excluded per chart.
+  # KPI row (Paid only)
+  - {id: db08_kpi_atv, title: "Average bill (₹)", query: fact_invoices, type: Number,
+     y: [{expr: "(sum(net_total) / count(name)).round(0)", as: Average bill, format: currency}],
+     filters: [{column: population, op: "=", value: "Paid"}, {column: waiter, op: "!=", value: "Administrator"}]}
+  - {id: db08_kpi_items, title: "Items per bill", query: fact_invoices, type: Number,
+     y: [{expr: "(sum(total_qty) / count(name)).round(1)", as: Items per bill}],
+     filters: [{column: population, op: "=", value: "Paid"}, {column: waiter, op: "!=", value: "Administrator"}]}
+  - {id: db08_kpi_cover, title: "Spend per cover (₹)", query: fact_invoices, type: Number,
+     y: [{expr: "(sum(net_total) / sum(pax)).round(0)", as: Spend per cover, format: currency}],
+     filters: [{column: population, op: "=", value: "Paid"}, {column: order_type, op: "=", value: "Dine In"}, {column: pax, op: ">", value: 0}, {column: waiter, op: "!=", value: "Administrator"}]}
+  - {id: db08_kpi_waiters, title: "Waiters active", query: fact_invoices, type: Number,
+     y: [{column: waiter, agg: count_distinct, as: Waiters active}],
+     filters: [{column: population, op: "=", value: "Paid"}, {column: waiter, op: "!=", value: "Administrator"}]}
+  # S1 Waiters (Paid only)
+  - {id: db08_sales, title: "Net sales by waiter (₹)", query: fact_invoices, type: Row, limit: 15,
+     x: waiter, y: [{expr: "(sum(net_total)).round(0)", as: Net sales, format: currency}],
+     order: [{by: Net sales, dir: desc}],
+     filters: [{column: population, op: "=", value: "Paid"}, {column: waiter, op: "!=", value: "Administrator"}]}
+  - {id: db08_bills_atv, title: "Bills and average bill by waiter", query: fact_invoices, type: Table, limit: 15,
      rows: [waiter],
      y: [{column: name, agg: count, as: Bills},
-         {expr: "sum(net_total) / count(name)", as: Average Ticket, format: currency},
-         {expr: "sum(total_qty) / count(name)", as: Items per Bill}],
+         {expr: "(sum(net_total) / count(name)).round(0)", as: Average bill (₹), format: currency},
+         {expr: "(sum(total_qty) / count(name)).round(1)", as: Items per bill}],
      order: [{by: Bills, dir: desc}],
-     filters: [{column: population, op: "=", value: "Paid"}]}
+     filters: [{column: population, op: "=", value: "Paid"}, {column: waiter, op: "!=", value: "Administrator"}]}
   # S2 Upsell
-  - {id: db08_mix, title: "Sales Mix by Waiter and Category Family", query: fact_sales_lines_enriched, type: Bar, limit: 60, stack: true,
-     x: waiter, split_by: {column: category_family, max: 5},
-     y: [{column: net_amount, agg: sum, as: Net Sales}],
-     filters: [{column: population, op: "=", value: "Paid"}]}
-  - {id: db08_covers, title: "Covers and Spend per Cover by Waiter (T2)", query: fact_invoices, type: Table, limit: 20,
+  - {id: db08_mix, title: "Beverage share of sales by waiter (%)", query: fact_sales_lines_enriched, type: Row, limit: 15,
+     x: waiter,
+     y: [{expr: "sum(if_else(category_family == 'Beverage', net_amount, 0)) / sum(net_amount)", as: Beverage share, format: percent}],
+     order: [{by: Beverage share, dir: desc}],
+     filters: [{column: population, op: "=", value: "Paid"}, {column: waiter, op: "!=", value: "Administrator"}]}
+  - {id: db08_covers, title: "Covers and spend per cover by waiter", query: fact_invoices, type: Table, limit: 15,
      rows: [waiter],
      y: [{column: pax, agg: sum, as: Covers},
-         {expr: "sum(net_total) / sum(pax)", as: Spend per Cover, format: currency}],
+         {expr: "(sum(net_total) / sum(pax)).round(0)", as: Spend per cover (₹), format: currency}],
      order: [{by: Covers, dir: desc}],
-     filters: [{column: population, op: "=", value: "Paid"}, {column: order_type, op: "=", value: "Dine In"}, {column: pax, op: ">", value: 0}]}
+     filters: [{column: population, op: "=", value: "Paid"}, {column: order_type, op: "=", value: "Dine In"}, {column: pax, op: ">", value: 0}, {column: waiter, op: "!=", value: "Administrator"}]}
   # S3 Leakage owners (waiter = order owner, not necessarily who cancelled)
-  - {id: db08_cancels, title: "Cancelled Bills by Waiter", query: fact_cancellations, type: Row, limit: 15,
-     x: waiter,
-     y: [{column: name, agg: count, as: Cancelled Bills}, {column: grand_total, agg: sum, as: Value Lost, format: currency}],
-     order: [{by: Cancelled Bills, dir: desc}]}
+  - {id: db08_cancels, title: "Cancelled value by order taker (₹)", query: fact_cancellations, type: Row, limit: 15,
+     x: waiter, y: [{expr: "(sum(grand_total)).round(0)", as: Cancelled value, format: currency}],
+     order: [{by: Cancelled value, dir: desc}],
+     filters: [{column: waiter, op: "!=", value: "Administrator"}]}
   # S4 Cashiers
-  - {id: db08_cashier, title: "Net Sales by Cashier", query: fact_invoices, type: Row, limit: 15,
-     x: cashier, y: [{column: net_total, agg: sum, as: Net Sales, format: currency}],
-     order: [{by: Net Sales, dir: desc}]}
-  - {id: db08_cashup, title: "Cash-up Variance by Cashier (T3)", query: fact_closing_details, type: Row, limit: 15,
-     x: user, y: [{column: difference, agg: sum, as: Variance, format: currency}],
-     order: [{by: Variance, dir: desc}]}
-  - {id: db08_labour, title: "Employee Cost Share of Net Sales (T2)", query: fact_daily_pnl, type: Number,
-     y: [{expr: "sum(total_employee_costs) / sum(net_sales)", as: Employee Cost Ratio, format: percent}]}
+  - {id: db08_cashier, title: "Net sales by cashier (₹)", query: fact_invoices, type: Row, limit: 15,
+     x: cashier, y: [{expr: "(sum(net_total)).round(0)", as: Net sales, format: currency}],
+     order: [{by: Net sales, dir: desc}],
+     filters: [{column: cashier, op: "!=", value: "Administrator"}]}
 dashboards:
   - id: employee_performance
-    title: "URY DB08 Employee Performance"
+    title: "Staff performance"
     filters:
-      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"},
-         applies_to: {fact_invoices: posting_date, fact_sales_lines_enriched: posting_date, fact_cancellations: posting_date, fact_closing_details: posting_date, fact_daily_pnl: date}}
-      - {id: f_branch, label: Branch, type: string, icon: building-2,
-         applies_to: {fact_invoices: branch, fact_sales_lines_enriched: branch, fact_cancellations: branch, fact_closing_details: branch, fact_daily_pnl: branch}}
-      - {id: f_waiter, label: Waiter, type: string, icon: user,
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"}, layout: {x: 0, y: 2, w: 5, h: 1},
+         applies_to: {fact_invoices: posting_date, fact_sales_lines_enriched: posting_date, fact_cancellations: posting_date}}
+      - {id: f_branch, label: Branch, type: string, icon: building-2, layout: {x: 5, y: 2, w: 5, h: 1},
+         applies_to: {fact_invoices: branch, fact_sales_lines_enriched: branch, fact_cancellations: branch}}
+      - {id: f_waiter, label: Waiter, type: string, icon: user, layout: {x: 10, y: 2, w: 5, h: 1},
          applies_to: {fact_invoices: waiter, fact_sales_lines_enriched: waiter, fact_cancellations: waiter}}
-      - {id: f_order_type, label: Order Type, type: string, icon: utensils,
+      - {id: f_order_type, label: Order type, type: string, icon: utensils, layout: {x: 15, y: 2, w: 5, h: 1},
          applies_to: {fact_invoices: order_type, fact_sales_lines_enriched: order_type}}
     items:
-      - {chart: db08_sales, x: 0, y: 1, w: 10, h: 8}
-      - {chart: db08_bills_atv, x: 10, y: 1, w: 10, h: 8}
-      - {chart: db08_mix, x: 0, y: 9, w: 12, h: 8}
-      - {chart: db08_covers, x: 12, y: 9, w: 8, h: 8}
-      - {chart: db08_cancels, x: 0, y: 17, w: 10, h: 7}
-      - {chart: db08_cashier, x: 10, y: 17, w: 10, h: 7}
-      - {chart: db08_cashup, x: 0, y: 24, w: 10, h: 6}
-      - {chart: db08_labour, x: 10, y: 24, w: 10, h: 3}
-      - {text: "<b>Indicators, not verdicts.</b> Employee = Frappe user; HR Employee links exist for 2 people only (R3). Waiter, covers and upsell charts use Paid bills only (Consolidated waiter is synthetic). Cancelled bills are attributed to the order owner, not necessarily the person who cancelled. <b>T3</b> EMP-010/011 cash-up variance and discounts are all zero or near-empty in the demo.", x: 10, y: 27, w: 10, h: 3}
-      - {text: "<b>T4</b> EMP-013 cook speed (kitchen actors are all Administrator, R4); EMP-014 sales per labour hour (no attendance hours captured); EMP-015 tips and commission (no field, R12). No chart is shown for these until the data is captured.", x: 0, y: 30, w: 20, h: 2}
+      - {text: "<p><b>Staff performance, for managers only.</b> Use it to coach, not to judge: sales count for the person on the bill, cancellations for whoever opened the order. Paid bills only; default last 90 days.</p>", x: 0, y: 0, w: 20, h: 2}
+      - {chart: db08_kpi_atv, x: 0, y: 3, w: 5, h: 3}
+      - {chart: db08_kpi_items, x: 5, y: 3, w: 5, h: 3}
+      - {chart: db08_kpi_cover, x: 10, y: 3, w: 5, h: 3}
+      - {chart: db08_kpi_waiters, x: 15, y: 3, w: 5, h: 3}
+      - {text: "<p><b>Sales and bills</b> - who sells and how big each bill is</p>", x: 0, y: 6, w: 20, h: 1}
+      - {chart: db08_sales, x: 0, y: 7, w: 10, h: 8}
+      - {chart: db08_bills_atv, x: 10, y: 7, w: 10, h: 8}
+      - {text: "<p><b>Upsell and covers</b> - who sells more drinks and earns more per guest</p>", x: 0, y: 15, w: 20, h: 1}
+      - {chart: db08_mix, x: 0, y: 16, w: 10, h: 7}
+      - {chart: db08_covers, x: 10, y: 16, w: 10, h: 7}
+      - {text: "<p><b>Cancellations and cashiers</b> - cancelled value by the person who opened the order, and sales by cashier</p>", x: 0, y: 23, w: 20, h: 1}
+      - {chart: db08_cancels, x: 0, y: 24, w: 10, h: 7}
+      - {chart: db08_cashier, x: 10, y: 24, w: 10, h: 7}
+      - {text: "<p>Cancelled value is credited to the person who opened the order, not necessarily who cancelled it. Covers count dine-in bills only.</p>", x: 0, y: 31, w: 20, h: 1}
+      - {text: "<p><b>Not recorded yet:</b> cook speed, sales per labour hour and tips. Needs cook logins on the kitchen screen, attendance hours and a tips field on the bill.</p>", x: 0, y: 32, w: 20, h: 2}

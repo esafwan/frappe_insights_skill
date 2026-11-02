@@ -41,14 +41,14 @@ charts:
     query: fact_yield_checks
     type: Number
     y:
-      - {expr: "sum(output_qty) / sum(input_qty) * 100", as: Actual Yield Pct}
-      - {expr: "sum(expected_output) / sum(input_qty) * 100", as: Standard Yield Pct}
-      - {expr: "sum(below_standard) / count(name)", as: Share Below Standard}
-      - {expr: "sum(out_of_tolerance) / count(name)", as: Share Out Of Tolerance}
+      - {expr: "sum(output_qty) / sum(input_qty) * 100", as: "Actual yield (%)"}
+      - {expr: "sum(expected_output) / sum(input_qty) * 100", as: "Standard yield (%)"}
+      - {expr: "sum(below_standard) / count(name)", as: "Checks below standard (%)", format: percent}
+      - {expr: "sum(out_of_tolerance) / count(name)", as: "Checks outside 5-point tolerance (%)", format: percent}
   - id: db12_gap
-    title: "Yield Gap vs Standard (points)"
+    title: "Yield gap vs standard (points, negative = under-yield)"
     query: fact_yield_checks
-    type: Bar
+    type: Row
     limit: 30
     x: item_name
     y: [{expr: "sum(output_qty - expected_output) / sum(input_qty) * 100", as: Gap Pts}]
@@ -62,41 +62,42 @@ charts:
     y: [{column: yield_loss_qty, agg: sum, as: Yield Loss Qty}]
     order: [{by: Yield Loss Qty, dir: desc}]
   - id: db12_trend
-    title: "Weekly Yield by Item"
+    title: "Weekly yield gap by item (points)"
     query: fact_yield_checks
     type: Line
     limit: 366
     x: {column: checked_on, granularity: week}
-    split_by: {column: item_name, max: 6}
-    y: [{expr: "sum(output_qty) / sum(input_qty) * 100", as: Actual Yield Pct}]
+    split_by: {column: item_name, max: 4}
+    y: [{expr: "sum(output_qty - expected_output) / sum(input_qty) * 100", as: Gap Pts}]
   - id: db12_count_var
-    title: "Stock Count Variance by Item"
+    title: "Stock count difference by item (₹, negative = shortage)"
     query: fact_stock_correction
-    type: Bar
+    type: Row
     limit: 30
     x: item_name
-    y: [{column: amount_difference, agg: sum, as: Count Variance}]
+    y: [{column: amount_difference, agg: sum, as: Count Variance, format: currency}]
     order: [{by: Count Variance, dir: asc}]
 dashboards:
   - id: yield_recipe
-    title: "Yield And Recipe"
+    title: "Yield and recipe"
     filters:
       - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 12 Months"},
-         layout: {x: 0, y: 0, w: 5, h: 1},
+         layout: {x: 0, y: 2, w: 5, h: 1},
          applies_to: {fact_yield_checks: checked_on, fact_stock_correction: posting_date}}
       - {id: f_branch, label: Branch, type: string, icon: building-2,
-         layout: {x: 5, y: 0, w: 5, h: 1},
+         layout: {x: 5, y: 2, w: 5, h: 1},
          applies_to: {fact_yield_checks: branch, fact_stock_correction: branch}}
       - {id: f_uom, label: UOM, type: string, icon: scale, default: {op: in, value: ["Kg"]},
-         layout: {x: 10, y: 0, w: 5, h: 1},
+         layout: {x: 10, y: 2, w: 5, h: 1},
          applies_to: {fact_yield_checks: stock_uom}}
       - {id: f_item, label: Item, type: string, icon: package,
-         layout: {x: 15, y: 0, w: 5, h: 1},
+         layout: {x: 15, y: 2, w: 5, h: 1},
          applies_to: {fact_yield_checks: item, fact_stock_correction: item_code}}
     items:
-      - {chart: db12_kpi, x: 0, y: 1, w: 20, h: 3}
-      - {chart: db12_gap, x: 0, y: 4, w: 10, h: 9}
-      - {chart: db12_loss, x: 10, y: 4, w: 10, h: 9}
-      - {chart: db12_trend, x: 0, y: 13, w: 20, h: 8}
-      - {chart: db12_count_var, x: 0, y: 21, w: 10, h: 7}
-      - {text: "<b>T4</b> YLD-008 yield by department is not shown: department is empty on 66/66 checks (roadmap R8). <b>T3</b> YLD-009 yield loss cost, YLD-010 check cadence compliance and checker accountability (all checks by Administrator) are not shown. Tolerance = 5 points (architecture constant). The UOM filter defaults to Kg so weights and litres are not mixed; the stock count chart is not filtered by UOM.", x: 10, y: 21, w: 10, h: 7}
+      - {text: "<p><b>Yield and recipe.</b> Which raw materials give less usable output than the recipe standard. For kitchen head. Default: last 12 months, kg items; good is within 5 points of standard.</p>", x: 0, y: 0, w: 20, h: 2}
+      - {chart: db12_kpi, x: 0, y: 3, w: 20, h: 3}
+      - {chart: db12_gap, x: 0, y: 6, w: 10, h: 9}
+      - {chart: db12_loss, x: 10, y: 6, w: 10, h: 9}
+      - {chart: db12_trend, x: 0, y: 15, w: 20, h: 6}
+      - {chart: db12_count_var, x: 0, y: 21, w: 20, h: 7}
+      - {text: "<p><b>Not recorded yet:</b> yield by station and by checker. Record the department and checker on each yield check.</p>", x: 0, y: 28, w: 20, h: 1}

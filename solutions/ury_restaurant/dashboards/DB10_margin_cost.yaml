@@ -20,55 +20,79 @@ queries:
   # (is_default=1, is_active=1, docstatus=1). Date column: posting_date. est_cost/est_margin are NULL when no recipe cost.
   - id: fact_sales_lines_enriched
     title: "fact_sales_lines_enriched"
-    sql: "WITH cm AS (SELECT ig.name AS item_group, CASE WHEN ig.name IN ('Dessert','Desserts','Pastry','Ice cream') THEN 'Desserts' WHEN ig.name IN ('Soups','Soups&Salads','SALADS','Salad Chicken') THEN 'Soups & Salads' WHEN ig.name IN ('Grills & BBQ','CHARCOL GRILLED','Grilled Specials','Chicken Al Fahams','KEBAB','Chicken Kebabs') THEN 'Grills & Kebabs' WHEN ig.name IN ('RICE','Biryani & Rice','Special Rice') THEN 'Rice & Biryani' WHEN ig.name IN ('Curries','GRAVY','GARAVIES','Main Course') THEN 'Mains & Curries' WHEN ig.name IN ('BURGER & WRAPS','Burgers & Sandwiches') THEN 'Burgers & Wraps' WHEN ig.name IN ('COMBOS','COMBO-LULU','PLATTER') THEN 'Combos & Platters' WHEN ig.name IN ('Soft Drinks','Cool Drinks','Soft Drink Spl','Soft Drink Can') THEN 'Soft Drinks' WHEN ig.name IN ('Juices&Mocktails','Smoothies','Beverages') THEN 'Juices & Beverages' WHEN ig.name = 'All Item Groups' THEN 'Unassigned' WHEN ig.name IN ('Raw Material','Services','Sub Assemblies','Consumable','Central Store','Burning Materials','Cleaning Material','Disposable','Chicken','Frozen Goods','Groceries','Milk & Curd','FISH','Provision','Sauces','Powder','Oil','Fruits','Kitchen Materials','Vegetable','VEGETABLES','Cleaning','Burning','GROCERY','Disposables','Ejt Masalas','PROCESSED','Rice Raw','Grilled Specials Raw','Chicken Kebabs Raw','Charges','MEAT','General','Raw Meat','MASALA PROCESSED','Staff Food') THEN 'Non-menu' ELSE ig.name END AS menu_category FROM `tabItem Group` ig), bc AS (SELECT b.item, MAX(b.raw_material_cost / NULLIF(b.quantity, 0)) AS bom_unit_cost FROM `tabBOM` b WHERE b.is_default = 1 AND b.is_active = 1 AND b.docstatus = 1 AND b.raw_material_cost > 0 GROUP BY b.item) SELECT pii.name AS line_id, pi.name AS invoice, pi.posting_date, HOUR(pi.posting_time) AS hour_of_day, pi.branch, pi.company, pi.order_type, pi.waiter, pi.cashier, CASE WHEN pi.status = 'Consolidated' THEN 'Consolidated' ELSE 'Paid' END AS population, pii.item_code, pii.item_name, pii.item_group, COALESCE(cm.menu_category, 'Unassigned') AS menu_category, CASE WHEN cm.menu_category IN ('Soft Drinks','Juices & Beverages') THEN 'Beverage' WHEN cm.menu_category IN ('Non-menu','Unassigned') THEN cm.menu_category WHEN cm.menu_category IS NULL THEN 'Unassigned' ELSE 'Food' END AS category_family, COALESCE(NULLIF(ipc.department, ''), 'Unmapped') AS department, COALESCE(NULLIF(ipc.production_unit, ''), 'Unmapped') AS config_unit, ipc.production_policy, pii.warehouse, pii.qty, pii.amount AS gross_amount, pii.net_amount, bc.bom_unit_cost, CASE WHEN bc.bom_unit_cost IS NULL THEN 0 ELSE 1 END AS cost_known, pii.qty * bc.bom_unit_cost AS est_cost, CASE WHEN bc.bom_unit_cost IS NULL THEN NULL ELSE pii.net_amount END AS costed_net_amount, CASE WHEN bc.bom_unit_cost IS NULL THEN NULL ELSE pii.net_amount - pii.qty * bc.bom_unit_cost END AS est_margin FROM `tabPOS Invoice Item` pii JOIN `tabPOS Invoice` pi ON pi.name = pii.parent AND pi.docstatus = 1 AND pi.is_return = 0 LEFT JOIN cm ON cm.item_group = pii.item_group LEFT JOIN `tabURY Item Production Configuration` ipc ON ipc.item = pii.item_code AND ipc.branch = pi.branch AND ipc.active = 1 LEFT JOIN bc ON bc.item = pii.item_code"
+    sql: "WITH cm AS (SELECT ig.name AS item_group, CASE WHEN ig.name IN ('Dessert','Desserts','Pastry','Ice cream') THEN 'Desserts' WHEN ig.name IN ('Soups','Soups&Salads','SALADS','Salad Chicken') THEN 'Soups & Salads' WHEN ig.name IN ('Grills & BBQ','CHARCOL GRILLED','Grilled Specials','Chicken Al Fahams','KEBAB','Chicken Kebabs') THEN 'Grills & Kebabs' WHEN ig.name IN ('RICE','Biryani & Rice','Special Rice') THEN 'Rice & Biryani' WHEN ig.name IN ('Curries','GRAVY','GARAVIES','Main Course') THEN 'Mains & Curries' WHEN ig.name IN ('BURGER & WRAPS','Burgers & Sandwiches') THEN 'Burgers & Wraps' WHEN ig.name IN ('COMBOS','COMBO-LULU','PLATTER') THEN 'Combos & Platters' WHEN ig.name IN ('Soft Drinks','Cool Drinks','Soft Drink Spl','Soft Drink Can') THEN 'Soft Drinks' WHEN ig.name IN ('Juices&Mocktails','Smoothies','Beverages') THEN 'Juices & Beverages' WHEN ig.name = 'All Item Groups' THEN 'Unassigned' WHEN ig.name IN ('Raw Material','Services','Sub Assemblies','Consumable','Central Store','Burning Materials','Cleaning Material','Disposable','Chicken','Frozen Goods','Groceries','Milk & Curd','FISH','Provision','Sauces','Powder','Oil','Fruits','Kitchen Materials','Vegetable','VEGETABLES','Cleaning','Burning','GROCERY','Disposables','Ejt Masalas','PROCESSED','Rice Raw','Grilled Specials Raw','Chicken Kebabs Raw','Charges','MEAT','General','Raw Meat','MASALA PROCESSED','Staff Food') THEN 'Non-menu' ELSE ig.name END AS menu_category FROM `tabItem Group` ig), bc AS (SELECT b.item, MAX(b.raw_material_cost / NULLIF(b.quantity, 0)) AS bom_unit_cost FROM `tabBOM` b WHERE b.is_default = 1 AND b.is_active = 1 AND b.docstatus = 1 AND b.raw_material_cost > 0 GROUP BY b.item) SELECT pii.name AS line_id, pi.name AS invoice, pi.posting_date, HOUR(pi.posting_time) AS hour_of_day, pi.branch, pi.company, pi.order_type, pi.waiter, pi.cashier, CASE WHEN pi.status = 'Consolidated' THEN 'Consolidated' ELSE 'Paid' END AS population, pii.item_code, pii.item_name, pii.item_group, COALESCE(cm.menu_category, 'Unassigned') AS menu_category, CASE WHEN cm.menu_category IN ('Soft Drinks','Juices & Beverages') THEN 'Beverage' WHEN cm.menu_category IN ('Non-menu','Unassigned') THEN cm.menu_category WHEN cm.menu_category IS NULL THEN 'Unassigned' ELSE 'Food' END AS category_family, COALESCE(NULLIF(ipc.department, ''), 'Unmapped') AS department, COALESCE(NULLIF(ipc.production_unit, ''), 'Unmapped') AS config_unit, ipc.production_policy, pii.warehouse, pii.qty, pii.amount AS gross_amount, pii.net_amount, bc.bom_unit_cost, CASE WHEN bc.bom_unit_cost IS NULL THEN 0 ELSE 1 END AS cost_known, pii.qty * bc.bom_unit_cost AS est_cost, CASE WHEN bc.bom_unit_cost IS NULL THEN NULL ELSE pii.net_amount END AS costed_net_amount, CASE WHEN bc.bom_unit_cost IS NULL THEN NULL ELSE pii.net_amount - pii.qty * bc.bom_unit_cost END AS est_margin, CASE WHEN bc.bom_unit_cost IS NULL THEN 0 WHEN pii.net_amount - pii.qty * bc.bom_unit_cost < -pii.net_amount THEN 0 ELSE 1 END AS cost_plausible FROM `tabPOS Invoice Item` pii JOIN `tabPOS Invoice` pi ON pi.name = pii.parent AND pi.docstatus = 1 AND pi.is_return = 0 LEFT JOIN cm ON cm.item_group = pii.item_group LEFT JOIN `tabURY Item Production Configuration` ipc ON ipc.item = pii.item_code AND ipc.branch = pi.branch AND ipc.active = 1 LEFT JOIN bc ON bc.item = pii.item_code"
 
 charts:
   # ---- S1 P and L (T2, seeded; recipe cost covers few items so COGS is optimistic)
-  - {id: db10_pnl_kpi, title: "P and L Gross Profit (T2)", query: fact_daily_pnl, type: Number,
-     y: [{column: gross_profit, agg: sum, as: "Gross Profit"},
-         {expr: "sum(gross_profit) / sum(net_sales)", as: "Gross Margin %"},
-         {expr: "sum(cogs) / sum(net_sales)", as: "COGS %"}]}
-  - {id: db10_labour, title: "Labour Cost Share (T2)", query: fact_daily_pnl, type: Number,
-     y: [{expr: "sum(total_employee_costs) / sum(net_sales)", as: "Labour %"}]}
-  - {id: db10_pnl_trend, title: "COGS % and Net Profit by Week (T2)", query: fact_daily_pnl, type: Line, limit: 120,
+  - {id: db10_pnl_kpi, title: "Gross profit (₹)", query: fact_daily_pnl, type: Number,
+     y: [{column: gross_profit, agg: sum, as: "Gross profit", format: currency}]}
+  - {id: db10_gross_margin, title: "Gross margin (%)", query: fact_daily_pnl, type: Number,
+     y: [{expr: "sum(gross_profit) / sum(net_sales)", as: "Gross margin", format: percent}]}
+  - {id: db10_food_cost, title: "Food cost (%)", query: fact_daily_pnl, type: Number,
+     y: [{expr: "sum(cogs) / sum(net_sales)", as: "Food cost", format: percent}]}
+  - {id: db10_labour, title: "Labour cost (%)", query: fact_daily_pnl, type: Number,
+     y: [{expr: "sum(total_employee_costs) / sum(net_sales)", as: "Labour cost", format: percent}]}
+  - {id: db10_pnl_trend, title: "Food cost by week (%)", query: fact_daily_pnl, type: Line, limit: 120,
      x: {column: date, granularity: week},
-     y: [{expr: "sum(cogs) / sum(net_sales)", as: "COGS %"}, {column: net_profit, agg: sum, as: "Net Profit"}]}
+     y: [{expr: "sum(cogs) / sum(net_sales)", as: "Food cost", format: percent}]}
+  - {id: db10_profit_trend, title: "Net profit by week (₹)", query: fact_daily_pnl, type: Bar, limit: 120,
+     x: {column: date, granularity: week},
+     y: [{column: net_profit, agg: sum, as: "Net profit", format: currency}]}
   # ---- S2 Recipe estimate (T2, costed items only; always read with Coverage)
-  - {id: db10_coverage, title: "Recipe Cost Coverage (T1)", query: fact_sales_lines_enriched, type: Number,
-     y: [{expr: "sum(costed_net_amount) / sum(net_amount)", as: "Coverage"},
-         {column: costed_net_amount, agg: sum, as: "Costed Net Sales"}]}
-  - {id: db10_est, title: "Recipe Margin Estimate (T2)", query: fact_sales_lines_enriched, type: Number,
-     filters: [{column: cost_known, op: "=", value: 1}],
-     y: [{column: est_margin, agg: sum, as: "Est Margin"},
-         {expr: "sum(est_margin) / sum(costed_net_amount)", as: "Est Margin %"}]}
-  - {id: db10_cat_cost, title: "Est Cost and Margin by Category (T2)", query: fact_sales_lines_enriched, type: Bar, limit: 20,
-     filters: [{column: cost_known, op: "=", value: 1}],
+  - {id: db10_coverage, title: "Recipe cost coverage (% of sales)", query: fact_sales_lines_enriched, type: Number,
+     y: [{expr: "sum(costed_net_amount) / sum(net_amount)", as: "Coverage", format: percent}]}
+  - {id: db10_costed_sales, title: "Costed sales (₹)", query: fact_sales_lines_enriched, type: Number,
+     y: [{column: costed_net_amount, agg: sum, as: "Costed sales", format: currency}]}
+  - {id: db10_est_margin, title: "Estimated margin, costed items (₹)", query: fact_sales_lines_enriched, type: Number,
+     filters: [{column: cost_plausible, op: "=", value: 1}],
+     y: [{column: est_margin, agg: sum, as: "Estimated margin", format: currency}]}
+  - {id: db10_est, title: "Estimated margin (%) (estimate)", query: fact_sales_lines_enriched, type: Number,
+     filters: [{column: cost_plausible, op: "=", value: 1}],
+     y: [{expr: "sum(est_margin) / sum(costed_net_amount)", as: "Estimated margin", format: percent}]}
+  - {id: db10_cat_cost, title: "Estimated margin by category (%) (estimate)", query: fact_sales_lines_enriched, type: Row, limit: 15,
+     filters: [{column: cost_plausible, op: "=", value: 1}, {column: menu_category, op: "!=", value: "Unassigned"}, {column: menu_category, op: "!=", value: "Non-menu"}],
      x: menu_category,
-     y: [{column: est_cost, agg: sum, as: "Est Cost"}, {column: est_margin, agg: sum, as: "Est Margin"}],
-     order: [{by: "Est Margin", dir: desc}]}
-  - {id: db10_menu_eng, title: "Menu Engineering by Item (T2)", query: fact_sales_lines_enriched, type: Table, limit: 50,
-     filters: [{column: cost_known, op: "=", value: 1}],
+     y: [{expr: "sum(est_margin) / sum(costed_net_amount)", as: "Estimated margin", format: percent}],
+     order: [{by: "Estimated margin", dir: desc}]}
+  - {id: db10_menu_eng, title: "Margin by dish (estimate)", query: fact_sales_lines_enriched, type: Table, limit: 15,
+     filters: [{column: cost_plausible, op: "=", value: 1}],
      rows: [item_name],
-     y: [{column: qty, agg: sum, as: "Qty"},
-         {expr: "sum(est_margin) / sum(qty)", as: "Est Margin per Unit"},
-         {expr: "sum(est_margin) / sum(costed_net_amount)", as: "Est Margin %"}],
-     order: [{by: "Qty", dir: desc}]}
+     y: [{column: qty, agg: sum, as: "Quantity"},
+         {expr: "sum(est_margin) / sum(qty)", as: "Margin per unit (₹)", format: currency},
+         {expr: "sum(est_margin) / sum(costed_net_amount)", as: "Margin (%)", format: percent}],
+     order: [{by: "Quantity", dir: desc}]}
+  - {id: db10_recipe_check, title: "Recipes to check (cost above price)", query: fact_sales_lines_enriched, type: Table, limit: 15,
+     filters: [{column: cost_known, op: "=", value: 1}, {column: est_margin, op: "<", value: 0}],
+     rows: [item_name],
+     y: [{expr: "sum(net_amount) / sum(qty)", as: "Price (₹)", format: currency},
+         {expr: "sum(est_cost) / sum(qty)", as: "Cost per unit (₹)", format: currency}],
+     order: [{by: "Cost per unit (₹)", dir: desc}]}
 dashboards:
   - id: margin_cost
-    title: "URY DB10 Margin And Cost"
+    title: "Margin and cost"
     filters:
-      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"}, applies_to: {fact_daily_pnl: date, fact_sales_lines_enriched: posting_date}}
-      - {id: f_branch, label: Branch, type: string, icon: map-pin, applies_to: {fact_daily_pnl: branch, fact_sales_lines_enriched: branch}}
-      - {id: f_category, label: Category, type: string, icon: tag, applies_to: {fact_sales_lines_enriched: menu_category}}
-      - {id: f_department, label: Department, type: string, icon: layers, applies_to: {fact_sales_lines_enriched: department}}
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"}, applies_to: {fact_daily_pnl: date, fact_sales_lines_enriched: posting_date}, layout: {x: 0, y: 2, w: 5, h: 1}}
+      - {id: f_branch, label: Branch, type: string, icon: map-pin, applies_to: {fact_daily_pnl: branch, fact_sales_lines_enriched: branch}, layout: {x: 5, y: 2, w: 5, h: 1}}
+      - {id: f_category, label: Category, type: string, icon: tag, applies_to: {fact_sales_lines_enriched: menu_category}, layout: {x: 10, y: 2, w: 5, h: 1}}
+      - {id: f_department, label: Department, type: string, icon: layers, applies_to: {fact_sales_lines_enriched: department}, layout: {x: 15, y: 2, w: 5, h: 1}}
     items:
-      - {text: "**Margin tiers:** best available first: P and L (T2, seeded), then recipe estimate (T2, costed items only), then GL/stock (T4). Read every margin next to its coverage. P and L section: MAR-001..004 and EMP-012. Recipe section: MAR-005..008 and MNU-012, estimated from the default active BOM with costed lines only.", x: 0, y: 1, w: 20, h: 2}
-      - {chart: db10_pnl_kpi, x: 0, y: 3, w: 12, h: 3}
-      - {chart: db10_labour, x: 12, y: 3, w: 8, h: 3}
-      - {chart: db10_pnl_trend, x: 0, y: 6, w: 20, h: 8}
-      - {chart: db10_coverage, x: 0, y: 14, w: 7, h: 3}
-      - {chart: db10_est, x: 7, y: 14, w: 13, h: 3}
-      - {chart: db10_cat_cost, x: 0, y: 17, w: 10, h: 9}
-      - {chart: db10_menu_eng, x: 10, y: 17, w: 10, h: 9}
-      - {text: "**T3** MAR-012 theoretical vs counted cost (8 seeded snapshots). **T4** MAR-010 GL food cost and MAR-011 stock consumption: POS invoices post no COGS and 91% of stock movements are valued at zero. Roadmap R2 (ingredient purchase rates and recipes), R11 (branch on cash-up and stock).", x: 0, y: 26, w: 20, h: 3}
+      - {text: "<p><b>Margin and cost.</b> What we keep after food and staff cost: the daily P and L, then a recipe estimate with its coverage first. For owner and finance. Default period: last 90 days. Demo figures.</p>", x: 0, y: 0, w: 20, h: 2}  # demo: remove last sentence on live sites
+      - {chart: db10_pnl_kpi, x: 0, y: 3, w: 5, h: 3}
+      - {chart: db10_gross_margin, x: 5, y: 3, w: 5, h: 3}
+      - {chart: db10_food_cost, x: 10, y: 3, w: 5, h: 3}
+      - {chart: db10_labour, x: 15, y: 3, w: 5, h: 3}
+      - {chart: db10_pnl_trend, x: 0, y: 6, w: 10, h: 7}
+      - {chart: db10_profit_trend, x: 10, y: 6, w: 10, h: 7}
+      - {text: "<p>Typical food cost target: 28 to 35% of net sales.</p>", x: 0, y: 13, w: 20, h: 1}
+      - {text: "<p><b>Estimate:</b> recipe-based margin for costed items only; coverage is shown first. Under 60% coverage, treat as indicative.</p>", x: 0, y: 14, w: 20, h: 1}
+      - {chart: db10_coverage, x: 0, y: 15, w: 5, h: 3}
+      - {chart: db10_costed_sales, x: 5, y: 15, w: 5, h: 3}
+      - {chart: db10_est_margin, x: 10, y: 15, w: 5, h: 3}
+      - {chart: db10_est, x: 15, y: 15, w: 5, h: 3}
+      - {chart: db10_cat_cost, x: 0, y: 18, w: 10, h: 8}
+      - {chart: db10_menu_eng, x: 10, y: 18, w: 10, h: 8}
+      - {text: "<p><b>Fix in setup:</b> dishes without a menu category are left out; assign categories to include them.</p>", x: 0, y: 26, w: 10, h: 1}
+      - {chart: db10_recipe_check, x: 0, y: 27, w: 10, h: 6}
+      - {text: "<p>These dishes cost more to make than they sell for, per their recipe. Usually a unit or quantity error in the BOM: fix the recipe, not the price.</p>", x: 0, y: 33, w: 10, h: 1}
+      - {text: "<p><b>Not recorded yet:</b> food cost from accounts and from stock usage. Bills do not post cost of goods and most stock moves carry no value; add ingredient purchase rates and recipes.</p>", x: 0, y: 34, w: 20, h: 2}
 desk: {workspace: "URY", label: "Margin And Cost"}

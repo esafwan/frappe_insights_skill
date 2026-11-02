@@ -2,7 +2,7 @@
 # One base query (fact_invoices, copied verbatim from semantic_layer.yaml); charts aggregate over its rows.
 # Populations: revenue/bills/ATV/channel use BOTH populations (f_population is the split filter). The waiter filter is
 # meaningful for the Paid population only (Consolidated waiter = urycashier on every bill).
-workbook: {id: ury_db03_sales_deep_dive, title: "URY DB03 Sales Deep Dive", module: "URY", required_apps: [ury]}
+workbook: {id: ury_db03_sales_deep_dive, title: "Sales deep-dive", module: "URY", required_apps: [ury]}
 queries:
   # fact_invoices (builder, T1). Grain: one submitted, non-return POS Invoice (the bill).
   # Use for bill counts, ATV, covers (pax, Paid population + Dine In only), order type, waiter, hour/weekday.
@@ -19,54 +19,43 @@ queries:
       - {as: hour_of_day, type: Integer, expr: "hour(posting_time)"}
       - {as: hour_label, type: String, expr: "pad_number(hour(posting_time), 2)"}  # string label: pivot_wider on an Integer column mixes int and string names (IbisTypeError)
       - {as: weekday, type: String, expr: "day_name(posting_date)"}
+      # weekday_label sorts Mon..Sun as a column header (leading digit = ISO weekday). Local to this spec; the shared fact_invoices has no weekday_num yet.
+      - {as: weekday_label, type: String, expr: "if_else(day_name(posting_date) == 'Monday', '1 Mon', if_else(day_name(posting_date) == 'Tuesday', '2 Tue', if_else(day_name(posting_date) == 'Wednesday', '3 Wed', if_else(day_name(posting_date) == 'Thursday', '4 Thu', if_else(day_name(posting_date) == 'Friday', '5 Fri', if_else(day_name(posting_date) == 'Saturday', '6 Sat', '7 Sun'))))))"}
       - {as: is_zero_bill, type: Integer, expr: "if_else(grand_total == 0, 1, 0)"}
       - {as: has_discount, type: Integer, expr: "if_else(discount_amount > 0, 1, 0)"}
-    select: [name, posting_date, hour_of_day, hour_label, weekday, branch, company, order_type, waiter, cashier, custom_waiter_employee, population, pos_profile, restaurant_table, customer, selling_price_list, total, net_total, grand_total, rounded_total, discount_amount, paid_amount, change_amount, total_qty, pax, is_zero_bill, has_discount]
+    select: [name, posting_date, hour_of_day, hour_label, weekday, weekday_label, branch, company, order_type, waiter, cashier, custom_waiter_employee, population, pos_profile, restaurant_table, customer, selling_price_list, total, net_total, grand_total, rounded_total, discount_amount, paid_amount, change_amount, total_qty, pax, is_zero_bill, has_discount]
 charts:
-  # S1 KPIs (SAL-001, SAL-003, SAL-004): latest month with change vs previous month.
-  - {id: db03_kpi, title: "DB03 KPIs (latest month)", query: fact_invoices, type: Number, comparison: true,
-     date: {column: posting_date, granularity: month},
-     y: [{column: net_total, agg: sum, as: "Net sales", format: currency},
+  # Net sales, Bills, Average bill, Items per bill, Discounts given: one 5-tile KPI row following the date filter (no month bucket).
+  - {id: db03_kpi, title: "Sales summary", query: fact_invoices, type: Number,
+     y: [{expr: "sum(net_total).round(0)", as: "Net sales (₹)", format: currency},
          {column: name, agg: count, as: Bills},
-         {expr: "sum(net_total) / count(name)", as: ATV, format: currency}]}
-  # S2 Trend (SAL-005): daily net sales by channel. limit above the day count (gotcha: Line + asc + limit keeps oldest).
-  - {id: db03_daily, title: "DB03 Daily net sales by channel", query: fact_invoices, type: Line, limit: 1000,
-     x: {column: posting_date, granularity: day}, y: [{column: net_total, agg: sum, as: "Net sales"}],
-     split_by: {column: order_type, max: 5}}
-  # S3 Channel and population (SAL-008, DQ-001)
-  - {id: db03_channel, title: "DB03 Channel mix", query: fact_invoices, type: Bar,
-     x: order_type, y: [{column: net_total, agg: sum, as: "Net sales"}, {column: name, agg: count, as: Bills}]}
-  - {id: db03_population, title: "DB03 Invoice population split", query: fact_invoices, type: Donut,
-     x: population, y: [{column: net_total, agg: sum, as: "Net sales"}]}
-  # S4 Demand rhythm (SAL-009, SAL-010)
-  - {id: db03_hour, title: "DB03 Bills by hour of day", query: fact_invoices, type: Bar,
-     x: hour_of_day, y: [{column: name, agg: count, as: Bills}], split_by: {column: population, max: 2}}
-  - {id: db03_grid, title: "DB03 Weekday by hour grid", query: fact_invoices, type: Table,
-     rows: [weekday], columns: [hour_label], y: [{column: name, agg: count, as: Bills}]}
-  # S5 Basket (SAL-004, SAL-001)
-  - {id: db03_basket, title: "DB03 Basket", query: fact_invoices, type: Number,
-     y: [{expr: "sum(total_qty) / count(name)", as: "Items per bill"},
-         {expr: "sum(net_total) / count(name)", as: ATV, format: currency}]}
-  - {id: db03_gross_net, title: "DB03 Gross vs net", query: fact_invoices, type: Number,
-     y: [{column: total, agg: sum, as: Gross, format: currency},
-         {column: net_total, agg: sum, as: Net, format: currency},
-         {column: discount_amount, agg: sum, as: Discount, format: currency}]}
+         {expr: "(sum(net_total) / count(name)).round(0)", as: "Average bill (₹)", format: currency},
+         {expr: "sum(total_qty) / count(name)", as: "Items per bill"},
+         {expr: "sum(discount_amount).round(0)", as: "Discounts given (₹)", format: currency}]}
+  # Trend: weekly stacked net sales by channel (limit above the bucket count: Line/Bar + asc + limit keeps the oldest).
+  - {id: db03_daily, title: "Weekly net sales by channel (₹)", query: fact_invoices, type: Bar, limit: 1000, stack: true,
+     x: {column: posting_date, granularity: week}, y: [{column: net_total, agg: sum, as: "Net sales"}],
+     split_by: {column: order_type, max: 4}}
+  # Detail: bills by hour (rows) and weekday (columns, Mon..Sun). No heatmap on 3.15.1.
+  - {id: db03_grid, title: "Bills by hour and weekday", query: fact_invoices, type: Table,
+     rows: [hour_label], columns: [weekday_label], y: [{column: name, agg: count, as: Bills}]}
+  # Channel ranking, one measure.
+  - {id: db03_channel, title: "Net sales by channel (₹)", query: fact_invoices, type: Row,
+     x: order_type, y: [{column: net_total, agg: sum, as: "Net sales"}],
+     order: [{by: "Net sales", dir: desc}]}
 dashboards:
   - id: sales_deep_dive
-    title: "URY DB03 Sales Deep Dive"
+    title: "Sales deep-dive"
     filters:
-      - {id: f_date, label: Date, type: date, icon: calendar, applies_to: {fact_invoices: posting_date}}
-      - {id: f_branch, label: Branch, type: string, icon: store, applies_to: {fact_invoices: branch}}
-      - {id: f_order_type, label: "Order type", type: string, icon: utensils, applies_to: {fact_invoices: order_type}}
-      - {id: f_population, label: Population, type: string, icon: users, applies_to: {fact_invoices: population}}
-      - {id: f_waiter, label: Waiter, type: string, icon: user, applies_to: {fact_invoices: waiter}}
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"}, applies_to: {fact_invoices: posting_date}, layout: {x: 0, y: 2, w: 5, h: 1}}
+      - {id: f_branch, label: Branch, type: string, icon: store, applies_to: {fact_invoices: branch}, layout: {x: 5, y: 2, w: 5, h: 1}}
+      - {id: f_order_type, label: "Order type", type: string, icon: utensils, applies_to: {fact_invoices: order_type}, layout: {x: 10, y: 2, w: 5, h: 1}}
+      - {id: f_waiter, label: Waiter, type: string, icon: user, applies_to: {fact_invoices: waiter}, layout: {x: 15, y: 2, w: 5, h: 1}}
     items:
-      - {chart: db03_kpi, x: 0, y: 2, w: 20, h: 3}
-      - {chart: db03_daily, x: 0, y: 5, w: 20, h: 8}
-      - {chart: db03_channel, x: 0, y: 13, w: 10, h: 8}
-      - {chart: db03_population, x: 10, y: 13, w: 10, h: 8}
-      - {chart: db03_hour, x: 0, y: 21, w: 10, h: 8}
-      - {chart: db03_grid, x: 10, y: 21, w: 10, h: 8}
-      - {chart: db03_basket, x: 0, y: 29, w: 10, h: 3}
-      - {chart: db03_gross_net, x: 10, y: 29, w: 10, h: 3}
-      - {text: "<p><b>T4</b> SAL-020 self-order share (URY Ordering Session has 0 rows) and SAL-021 targets (no target table): roadmap R13, R15.</p>", x: 0, y: 32, w: 20, h: 2}
+      - {text: "<p><b>Sales deep-dive.</b> How much we sell, when, and through which channel. For owner, finance and branch manager. Default period: last 90 days; every filter applies to every chart.</p>", x: 0, y: 0, w: 20, h: 2}
+      - {chart: db03_kpi, x: 0, y: 3, w: 20, h: 3}
+      - {chart: db03_daily, x: 0, y: 6, w: 20, h: 7}
+      - {chart: db03_grid, x: 0, y: 13, w: 12, h: 8}
+      - {chart: db03_channel, x: 12, y: 13, w: 8, h: 8}
+      - {text: "<p>Net sales exclude tax and cancelled bills. Average bill = net sales per bill.</p>", x: 0, y: 21, w: 20, h: 1}
+      # T4 (not recorded): SAL-020 self-order share (URY Ordering Session has 0 rows), SAL-021 targets (no target table), roadmap R13, R15. Empty-state text is P2, not applied.

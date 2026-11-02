@@ -40,32 +40,42 @@ queries:
     sql: "WITH ex AS (SELECT e.*, ROW_NUMBER() OVER (PARTITION BY e.kot, e.production_unit ORDER BY e.modified DESC) AS rn FROM `tabURY KOT Execution` e) SELECT ex.name, ex.kot, ex.state, ex.production_unit, COALESCE(NULLIF(pu.department, ''), ex.production_unit) AS department, ex.branch, ex.company, DATE(COALESCE(ex.started_at, ex.creation)) AS exec_date, HOUR(k.time) AS hour_of_day, k.type AS kot_type, ex.started_by, ex.ready_by, ex.served_by, ex.cancelled_by, pp.custom_kot_warning_time AS target_minutes, TIMESTAMPDIFF(SECOND, ex.creation, ex.started_at) AS queue_seconds, TIMESTAMPDIFF(SECOND, ex.started_at, ex.ready_at) AS prep_seconds, TIMESTAMPDIFF(SECOND, ex.ready_at, ex.served_at) AS pass_seconds, TIMESTAMPDIFF(SECOND, ex.started_at, ex.served_at) AS cycle_seconds, TIMESTAMPDIFF(SECOND, TIMESTAMP(k.date, k.time), ex.served_at) AS order_to_serve_seconds, CASE WHEN ex.state LIKE 'CANCELLED%' THEN 1 ELSE 0 END AS is_cancelled, CASE WHEN ex.state IN ('CANCELLED_AFTER_START','CANCELLED_AFTER_READY') THEN 1 ELSE 0 END AS wasted_prep, CASE WHEN ex.started_at IS NOT NULL THEN 1 ELSE 0 END AS was_started, CASE WHEN ex.ready_at IS NOT NULL THEN 1 ELSE 0 END AS was_ready, CASE WHEN ex.served_at IS NOT NULL THEN 1 ELSE 0 END AS was_served FROM ex JOIN `tabURY KOT` k ON k.name = ex.kot LEFT JOIN `tabURY Production Unit` pu ON pu.name = ex.production_unit LEFT JOIN `tabPOS Profile` pp ON pp.name = k.pos_profile WHERE ex.rn = 1 AND k.docstatus IN (1, 2)"
 
 charts:
-  - {id: db11_kpi, title: "Shrinkage, Overage And Net Difference", query: fact_stock_correction, type: Number,
-     y: [{column: shrink_value, agg: sum, as: Shrinkage, format: currency}, {column: overage_value, agg: sum, as: Overage, format: currency}, {column: amount_difference, agg: sum, as: "Net Difference", format: currency}]}
-  # Shrinkage is stored NEGATIVE, so (overage - shrink) is the GROSS (absolute) count variance:
-  # 2.48% on the demo data (29,970.4 / 1,208,046). The NET difference is 204 (0.017%).
-  - {id: db11_pct, title: "Gross Count Variance % Of Counted Value", query: fact_stock_correction, type: Number,
-     y: [{expr: "(sum(overage_value) - sum(shrink_value)) / sum(current_amount)", as: "Gross Variance Pct", format: percent}]}
-  - {id: db11_by_item, title: "Shrinkage And Overage By Item", query: fact_stock_correction, type: Bar, limit: 20,
-     x: item_name, y: [{column: shrink_value, agg: sum, as: Shrinkage}, {column: overage_value, agg: sum, as: Overage}]}
-  - {id: db11_by_reason, title: "Net Difference By Reason", query: fact_stock_correction, type: Donut, limit: 8,
-     x: reason, y: [{column: amount_difference, agg: sum, as: "Net Difference"}]}
-  - {id: db11_wasted_prep, title: "Wasted Prep (Cancelled After Start)", query: fact_kot_exec, type: Number,
-     y: [{column: wasted_prep, agg: sum, as: "Wasted Prep"}]}
+  # UX pass (DB11): shortage is shown as a POSITIVE loss number (shrink_value is stored negative), amounts rounded to whole rupees.
+  - {id: db11_shortage, title: "Stock shortage (₹)", query: fact_stock_correction, type: Number,
+     y: [{expr: "(-sum(shrink_value)).round(0)", as: "Stock Shortage", format: currency}]}
+  - {id: db11_excess, title: "Stock excess (₹)", query: fact_stock_correction, type: Number,
+     y: [{expr: "(sum(overage_value)).round(0)", as: "Stock Excess", format: currency}]}
+  - {id: db11_net, title: "Net difference (₹)", query: fact_stock_correction, type: Number,
+     y: [{expr: "(sum(amount_difference)).round(0)", as: "Net Difference", format: currency}]}
+  # Net difference / counted value (0-1 fraction, format: percent). Was the gross variance % tile.
+  - {id: db11_pct, title: "Net difference (% of stock value)", query: fact_stock_correction, type: Number,
+     y: [{expr: "sum(amount_difference) / sum(current_amount)", as: "Net Difference Pct", format: percent}]}
+  - {id: db11_by_item, title: "Shortage and excess by item (₹, top 15)", query: fact_stock_correction, type: Row, limit: 15,
+     x: item_name, y: [{expr: "(-sum(shrink_value)).round(0)", as: Shortage}, {expr: "(sum(overage_value)).round(0)", as: Excess}],
+     order: [{by: Shortage, dir: desc}]}
+  - {id: db11_by_reason, title: "Count differences by reason (₹)", query: fact_stock_correction, type: Row, limit: 8,
+     x: reason, y: [{expr: "(-sum(shrink_value)).round(0)", as: Shortage}, {expr: "(sum(overage_value)).round(0)", as: Excess}],
+     order: [{by: Shortage, dir: desc}]}
+  - {id: db11_wasted_prep, title: "KOT items cooked then cancelled (count)", query: fact_kot_exec, type: Number,
+     y: [{column: wasted_prep, agg: sum, as: "Cooked Then Cancelled"}]}
+  # Pre-wired (not placed on the dashboard): wastage is T4 (0 rows); the empty state text replaces the zero tile (S 3.5).
   - {id: db11_waste_rows, title: "Wastage Records Logged", query: fact_wastage_lines, type: Number,
      y: [{column: name, agg: count, as: "Wastage Rows"}]}
 dashboards:
   - id: wastage_shrinkage
-    title: "URY DB11 Wastage And Shrinkage"
+    title: "Stock count and wastage"
     filters:
-      - {id: f_date, label: Date, type: date, icon: calendar, applies_to: {fact_stock_correction: posting_date, fact_wastage_lines: posting_date, fact_kot_exec: exec_date}}
-      - {id: f_branch, label: Branch, type: string, icon: store, applies_to: {fact_stock_correction: branch, fact_wastage_lines: branch, fact_kot_exec: branch}}
-      - {id: f_item, label: Item, type: string, icon: package, applies_to: {fact_stock_correction: item_code, fact_wastage_lines: item_code}}
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"}, layout: {x: 0, y: 2, w: 5, h: 1}, applies_to: {fact_stock_correction: posting_date, fact_kot_exec: exec_date}}
+      - {id: f_branch, label: Branch, type: string, icon: store, layout: {x: 5, y: 2, w: 5, h: 1}, applies_to: {fact_stock_correction: branch, fact_kot_exec: branch}}
+      - {id: f_item, label: Item, type: string, icon: package, layout: {x: 10, y: 2, w: 5, h: 1}, applies_to: {fact_stock_correction: item_code}}
     items:
-      - {chart: db11_kpi, x: 0, y: 1, w: 12, h: 3}
-      - {chart: db11_pct, x: 12, y: 1, w: 8, h: 3}
-      - {chart: db11_by_item, x: 0, y: 4, w: 12, h: 9}
-      - {chart: db11_by_reason, x: 12, y: 4, w: 8, h: 9}
-      - {chart: db11_wasted_prep, x: 0, y: 13, w: 6, h: 3}
-      - {text: "<p><b>T4</b> Wastage value, reasons, % of sales and by department (WST-001..005): no URY Wastage has ever been recorded (DQ-010 = 0). Also KIT-016 void disposition is 'Pending' on every line. Start logging wastage (roadmap R1); charts are pre-wired to fact_wastage_lines. Days of cover (STK-007) is also T4.</p>", x: 6, y: 13, w: 14, h: 4}
-      - {chart: db11_waste_rows, x: 0, y: 16, w: 6, h: 3}
+      - {text: "<p><b>Stock count and wastage.</b> Where is stock going missing, and why? For the kitchen head and finance. Default period: last 90 days; every filter applies to every chart except Item on the cancelled KOT items tile.</p>", x: 0, y: 0, w: 20, h: 2}
+      - {chart: db11_shortage, x: 0, y: 3, w: 5, h: 3}
+      - {chart: db11_excess, x: 5, y: 3, w: 5, h: 3}
+      - {chart: db11_net, x: 10, y: 3, w: 5, h: 3}
+      - {chart: db11_pct, x: 15, y: 3, w: 5, h: 3}
+      - {text: "<p><b>Not recorded yet: kitchen wastage.</b> No wastage entries exist, so waste value, reasons and waste % of sales are empty. Log spoiled or dropped food in URY Wastage at each shift end; these charts fill automatically.</p>", x: 0, y: 6, w: 20, h: 2}
+      - {chart: db11_by_item, x: 0, y: 8, w: 12, h: 9}
+      - {chart: db11_by_reason, x: 12, y: 8, w: 8, h: 5}
+      - {chart: db11_wasted_prep, x: 12, y: 13, w: 8, h: 3}
+      - {text: "<p>Cooked and then cancelled before serving: a proxy for waste until wastage is logged.</p>", x: 12, y: 16, w: 8, h: 2}

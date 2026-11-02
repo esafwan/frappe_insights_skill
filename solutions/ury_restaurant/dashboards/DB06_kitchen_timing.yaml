@@ -23,22 +23,6 @@ queries:
       - {as: sla_breach, type: Integer, expr: "if_else(production_time.cast(\"float64\") > custom_kot_warning_time, 1, 0)"}
     select: [name, date, hour_of_day, branch, production, type, order_status, is_served, invoice, restaurant_table, pos_profile, user, prod_minutes, custom_kot_warning_time, sla_breach]
 
-  # fact_kot_lines (builder, T1 counts). Grain: one URY KOT Items row (kitchen line). quantity/cancelled_qty are text:
-  # cast. Category = raw item_group (Item join); cleaned category is sales-side only. Date column: date.
-  - id: fact_kot_lines
-    title: "fact_kot_lines"
-    table: "URY KOT Items"
-    joins:
-      - {table: "URY KOT", type: inner, on: [parent, name], columns: [date, time, production, branch, type, order_status, invoice, pos_profile]}
-      - {table: "Item", type: left, on: [item, name], columns: [item_group]}
-    filters:
-      - {column: docstatus, op: "=", value: 1}
-    mutate:
-      - {as: qty_num, type: Decimal, expr: "quantity.cast(\"float64\")"}
-      - {as: cancelled_qty_num, type: Decimal, expr: "cancelled_qty.cast(\"float64\")"}
-      - {as: hour_of_day, type: Integer, expr: "hour(time)"}
-    select: [name, parent, date, hour_of_day, branch, production, type, order_status, invoice, item, item_name, item_group, course, qty_num, cancelled_qty_num, disposition]
-
   # fact_kot_exec (sql, T3 on demo: structure ready, stamps milliseconds apart). Grain: one URY KOT Execution per
   # (kot, production_unit), DEDUPED to the latest-modified row (6 KOTs have duplicate QUEUED rows).
   # Why sql: durations need TIMESTAMPDIFF over Datetime (time_diff casts to TIME, drops dates/fractions, sign
@@ -46,61 +30,64 @@ queries:
   # TIMESTAMPDIFF(SECOND, a, b) = b - a (MariaDB). Date column: exec_date. department = executed unit's department.
   - id: fact_kot_exec
     title: "fact_kot_exec"
-    sql: "WITH ex AS (SELECT e.*, ROW_NUMBER() OVER (PARTITION BY e.kot, e.production_unit ORDER BY e.modified DESC) AS rn FROM `tabURY KOT Execution` e) SELECT ex.name, ex.kot, ex.state, ex.production_unit, COALESCE(NULLIF(pu.department, ''), ex.production_unit) AS department, ex.branch, ex.company, DATE(COALESCE(ex.started_at, ex.creation)) AS exec_date, HOUR(k.time) AS hour_of_day, k.type AS kot_type, ex.started_by, ex.ready_by, ex.served_by, ex.cancelled_by, pp.custom_kot_warning_time AS target_minutes, TIMESTAMPDIFF(SECOND, ex.creation, ex.started_at) AS queue_seconds, TIMESTAMPDIFF(SECOND, ex.started_at, ex.ready_at) AS prep_seconds, TIMESTAMPDIFF(SECOND, ex.ready_at, ex.served_at) AS pass_seconds, TIMESTAMPDIFF(SECOND, ex.started_at, ex.served_at) AS cycle_seconds, TIMESTAMPDIFF(SECOND, TIMESTAMP(k.date, k.time), ex.served_at) AS order_to_serve_seconds, CASE WHEN ex.state LIKE 'CANCELLED%' THEN 1 ELSE 0 END AS is_cancelled, CASE WHEN ex.state IN ('CANCELLED_AFTER_START','CANCELLED_AFTER_READY') THEN 1 ELSE 0 END AS wasted_prep, CASE WHEN ex.started_at IS NOT NULL THEN 1 ELSE 0 END AS was_started, CASE WHEN ex.ready_at IS NOT NULL THEN 1 ELSE 0 END AS was_ready, CASE WHEN ex.served_at IS NOT NULL THEN 1 ELSE 0 END AS was_served FROM ex JOIN `tabURY KOT` k ON k.name = ex.kot LEFT JOIN `tabURY Production Unit` pu ON pu.name = ex.production_unit LEFT JOIN `tabPOS Profile` pp ON pp.name = k.pos_profile WHERE ex.rn = 1 AND k.docstatus IN (1, 2)"
+    sql: "WITH ex AS (SELECT e.*, ROW_NUMBER() OVER (PARTITION BY e.kot, e.production_unit ORDER BY e.modified DESC) AS rn FROM `tabURY KOT Execution` e) SELECT ex.name, ex.kot, ex.state, ex.production_unit, COALESCE(NULLIF(pu.department, ''), ex.production_unit) AS department, ex.branch, ex.company, DATE(COALESCE(ex.started_at, ex.creation)) AS exec_date, HOUR(k.time) AS hour_of_day, k.type AS kot_type, ex.started_by, ex.ready_by, ex.served_by, ex.cancelled_by, pp.custom_kot_warning_time AS target_minutes, TIMESTAMPDIFF(SECOND, ex.creation, ex.started_at) AS queue_seconds, TIMESTAMPDIFF(SECOND, ex.started_at, ex.ready_at) AS prep_seconds, TIMESTAMPDIFF(SECOND, ex.ready_at, ex.served_at) AS pass_seconds, TIMESTAMPDIFF(SECOND, ex.started_at, ex.served_at) AS cycle_seconds, TIMESTAMPDIFF(SECOND, TIMESTAMP(k.date, k.time), ex.served_at) AS order_to_serve_seconds, CASE WHEN ex.state LIKE 'CANCELLED%' THEN 1 ELSE 0 END AS is_cancelled, CASE WHEN ex.state = 'CANCELLED_AFTER_START' THEN 'Cancelled while cooking' WHEN ex.state = 'CANCELLED_AFTER_READY' THEN 'Cancelled after ready' WHEN ex.state LIKE 'CANCELLED%' THEN 'Cancelled before start' END AS cancel_stage, CASE WHEN ex.state IN ('CANCELLED_AFTER_START','CANCELLED_AFTER_READY') THEN 1 ELSE 0 END AS wasted_prep, CASE WHEN ex.started_at IS NOT NULL THEN 1 ELSE 0 END AS was_started, CASE WHEN ex.ready_at IS NOT NULL THEN 1 ELSE 0 END AS was_ready, CASE WHEN ex.served_at IS NOT NULL THEN 1 ELSE 0 END AS was_served FROM ex JOIN `tabURY KOT` k ON k.name = ex.kot LEFT JOIN `tabURY Production Unit` pu ON pu.name = ex.production_unit LEFT JOIN `tabPOS Profile` pp ON pp.name = k.pos_profile WHERE ex.rn = 1 AND k.docstatus IN (1, 2)"
+
+  # fact_kot_stages (sql). One row per KOT per stage reached, from the same deduped Execution rows as fact_kot_exec.
+  # Feeds the stage funnel (stage labels are numbered so they sort in order). Date column: exec_date.
+  - id: fact_kot_stages
+    title: "fact_kot_stages"
+    sql: "WITH ex AS (SELECT e.*, ROW_NUMBER() OVER (PARTITION BY e.kot, e.production_unit ORDER BY e.modified DESC) AS rn FROM `tabURY KOT Execution` e) , b AS (SELECT ex.kot, ex.branch, COALESCE(NULLIF(pu.department, ''), ex.production_unit) AS department, DATE(COALESCE(ex.started_at, ex.creation)) AS exec_date, ex.started_at, ex.ready_at, ex.served_at FROM ex JOIN `tabURY KOT` k ON k.name = ex.kot LEFT JOIN `tabURY Production Unit` pu ON pu.name = ex.production_unit WHERE ex.rn = 1 AND k.docstatus IN (1, 2)) SELECT '1 Sent to kitchen' AS stage, kot, branch, department, exec_date FROM b UNION ALL SELECT '2 Started' AS stage, kot, branch, department, exec_date FROM b WHERE started_at IS NOT NULL UNION ALL SELECT '3 Ready' AS stage, kot, branch, department, exec_date FROM b WHERE ready_at IS NOT NULL UNION ALL SELECT '4 Served' AS stage, kot, branch, department, exec_date FROM b WHERE served_at IS NOT NULL"
 
 charts:
-  # S1 SLA (T2). Split in two Number cards: the AVG needs the Served-only chart filter, the count/breach rate must not.
-  - {id: db06_kpi, title: "KOT Volume and SLA Breach (T2)", query: fact_kot_headers, type: Number,
+  # S1 KPI row. UX: no metric ids/tier codes in titles. (was T2)
+  - {id: db06_kpi, title: "KOTs and KOTs over target", query: fact_kot_headers, type: Number,
      y: [{column: name, agg: count, as: KOTs},
-         {expr: "sum(sla_breach) / sum(is_served)", as: Breach Rate, format: percent}]}
-  - {id: db06_avg_prep, title: "Avg Ticket Time min (T2)", query: fact_kot_headers, type: Number,
+         {expr: "sum(sla_breach) / sum(is_served)", as: "KOTs over target (%)", format: percent}]}
+  - {id: db06_avg_prep, title: "Avg prep time (min)", query: fact_kot_headers, type: Number,
      filters: [{column: order_status, op: "=", value: "Served"}],
-     y: [{column: prod_minutes, agg: avg, as: Avg Ticket Minutes}]}
-  - {id: db06_target, title: "Target vs Actual by Profile (T2)", query: fact_kot_headers, type: Table, limit: 20,
-     filters: [{column: order_status, op: "=", value: "Served"}],
-     rows: [pos_profile],
-     y: [{column: custom_kot_warning_time, agg: max, as: Target Minutes}, {column: prod_minutes, agg: avg, as: Actual Minutes}]}
-  # S2 Load (T1)
-  - {id: db06_by_hour, title: "KOTs by Hour", query: fact_kot_headers, type: Bar, limit: 100, stack: true,
-     x: hour_of_day, split_by: {column: production, max: 8}, y: [{column: name, agg: count, as: KOTs}],
-     order: [{by: hour_of_day, dir: asc}]}
-  - {id: db06_unit, title: "KOTs by Production Unit", query: fact_kot_headers, type: Row, limit: 20,
-     x: production, y: [{column: name, agg: count, as: KOTs}], order: [{by: KOTs, dir: desc}]}
-  # S3 Flow (T1 counts)
-  - {id: db06_funnel, title: "KOT Throughput Funnel", query: fact_kot_exec, type: Table, limit: 20,
-     rows: [branch],
-     y: [{column: name, agg: count, as: Executions}, {column: was_started, agg: sum, as: Started},
-         {column: was_ready, agg: sum, as: Ready}, {column: was_served, agg: sum, as: Served}]}
-  - {id: db06_cancel_stage, title: "KOT Cancellations by Stage", query: fact_kot_exec, type: Bar, limit: 10,
-     filters: [{column: is_cancelled, op: "=", value: 1}],
-     x: state, y: [{column: name, agg: count, as: Cancelled}]}
-  # S4 Ticket health
-  - {id: db06_open, title: "Open KOTs", query: fact_kot_headers, type: Number,
-     y: [{expr: "count(name) - sum(is_served)", as: Open KOTs}]}
-  - {id: db06_modified, title: "Modified Order KOTs", query: fact_kot_headers, type: Number,
+     y: [{expr: "avg(prod_minutes).round(1)", as: "Avg prep time (min)"}]}
+  - {id: db06_open, title: "KOTs not yet served", query: fact_kot_headers, type: Number,
+     y: [{expr: "count(name) - sum(is_served)", as: "KOTs not yet served"}]}
+  - {id: db06_modified, title: "Modified KOTs", query: fact_kot_headers, type: Number,
      filters: [{column: type, op: "=", value: "Order Modified"}],
-     y: [{column: name, agg: count, as: Modified KOTs}]}
-  - {id: db06_voids, title: "Voided Kitchen Qty", query: fact_kot_lines, type: Number,
-     y: [{column: cancelled_qty_num, agg: sum, as: Voided Qty}]}
+     y: [{column: name, agg: count, as: "Modified KOTs"}]}
+  # S2 Load (T1). db06_unit dropped: duplicate of DB05 KOTs by cooking station (same workspace).
+  - {id: db06_by_hour, title: "KOTs by hour and station (count)", query: fact_kot_headers, type: Bar, limit: 100, stack: true,
+     x: hour_of_day, split_by: {column: production, max: 4}, y: [{column: name, agg: count, as: KOTs}],
+     order: [{by: hour_of_day, dir: asc}]}
+  # S3 Targets and flow
+  - {id: db06_target, title: "Prep time vs target by branch (min)", query: fact_kot_headers, type: Table, limit: 20,
+     filters: [{column: order_status, op: "=", value: "Served"}],
+     rows: [branch],
+     y: [{column: custom_kot_warning_time, agg: max, as: "Target (min)"}, {expr: "avg(prod_minutes).round(1)", as: "Actual (min)"}]}
+  - {id: db06_funnel, title: "KOT stages reached (count)", query: fact_kot_stages, type: Funnel, limit: 10,
+     x: stage, y: [{column: kot, agg: count, as: KOTs}]}
+  - {id: db06_cancel_stage, title: "Cancelled KOTs by stage (count)", query: fact_kot_exec, type: Bar, limit: 10,
+     filters: [{column: is_cancelled, op: "=", value: 1}],
+     x: cancel_stage, y: [{column: name, agg: count, as: Cancelled}]}
+  # db06_voids (Voided Kitchen Qty, always 0) dropped per UX change list.
 dashboards:
   - id: kitchen_timing
-    title: "Kitchen Timing and SLA"
+    title: "Kitchen timing"
     filters:
       - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"},
-         applies_to: {fact_kot_headers: date, fact_kot_exec: exec_date, fact_kot_lines: date}}
+         layout: {x: 0, y: 2, w: 5, h: 1},
+         applies_to: {fact_kot_headers: date, fact_kot_exec: exec_date, fact_kot_stages: exec_date}}
       - {id: f_branch, label: Branch, type: string, icon: building-2,
-         applies_to: {fact_kot_headers: branch, fact_kot_exec: branch, fact_kot_lines: branch}}
-      - {id: f_department, label: Department, type: string, icon: chef-hat,
-         applies_to: {fact_kot_headers: production, fact_kot_exec: department, fact_kot_lines: production}}
+         layout: {x: 5, y: 2, w: 5, h: 1},
+         applies_to: {fact_kot_headers: branch, fact_kot_exec: branch, fact_kot_stages: branch}}
+      - {id: f_department, label: Station, type: string, icon: chef-hat,
+         layout: {x: 10, y: 2, w: 5, h: 1},
+         applies_to: {fact_kot_headers: production, fact_kot_exec: department, fact_kot_stages: department}}
     items:
-      - {chart: db06_kpi, x: 0, y: 1, w: 6, h: 3}
-      - {chart: db06_avg_prep, x: 6, y: 1, w: 6, h: 3}
-      - {chart: db06_target, x: 12, y: 1, w: 8, h: 5}
-      - {chart: db06_by_hour, x: 0, y: 4, w: 12, h: 8}
-      - {chart: db06_unit, x: 12, y: 6, w: 8, h: 6}
-      - {chart: db06_funnel, x: 0, y: 12, w: 10, h: 8}
-      - {chart: db06_cancel_stage, x: 10, y: 12, w: 10, h: 8}
-      - {chart: db06_open, x: 0, y: 20, w: 7, h: 3}
-      - {chart: db06_modified, x: 7, y: 20, w: 6, h: 3}
-      - {chart: db06_voids, x: 13, y: 20, w: 7, h: 3}
-      - {text: "**T3** KIT-006 prep, KIT-010 order-to-serve, KIT-018 item speed: URY KOT Execution stamps on this site are milliseconds apart (seeded); **T4** KIT-009 queue wait needs a queued_at field. Durations will be read from fact_kot_exec (TIMESTAMPDIFF) once roadmap R4 lands.", x: 0, y: 23, w: 20, h: 3}
+      - {text: "<p><b>Kitchen timing.</b> How busy is the kitchen, and are KOTs getting out on time? For the kitchen head and floor manager. Default period: last 30 days; every filter applies to every chart.</p>", x: 0, y: 0, w: 20, h: 2}
+      - {chart: db06_kpi, x: 0, y: 3, w: 8, h: 3}
+      - {chart: db06_avg_prep, x: 8, y: 3, w: 4, h: 3}
+      - {chart: db06_open, x: 12, y: 3, w: 4, h: 3}
+      - {chart: db06_modified, x: 16, y: 3, w: 4, h: 3}
+      - {text: "<p>Over target = KOT not served within its branch's warning time. Not yet served = no served time recorded.</p>", x: 0, y: 6, w: 20, h: 1}
+      - {chart: db06_by_hour, x: 0, y: 7, w: 20, h: 7}
+      - {chart: db06_funnel, x: 0, y: 14, w: 8, h: 6}
+      - {chart: db06_cancel_stage, x: 8, y: 14, w: 6, h: 6}
+      - {chart: db06_target, x: 14, y: 14, w: 6, h: 6}
+      - {text: "<p><b>Not recorded yet:</b> prep time, order-to-serve time and per-dish speed. Kitchen screen start, ready and served times on this site are test data; queue wait needs a queued-at time.</p>", x: 0, y: 20, w: 20, h: 2}

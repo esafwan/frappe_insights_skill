@@ -75,7 +75,7 @@ Exit codes: 0 ok, 1 lint/verify failure, 2 usage/parse, 3 live conflict, 4 auth/
 | `ship --standard` loads nothing on 3.15.1 | forward format, Tier B only (`api-shipping.md`) |
 
 ## Where to read what
-- `references/spec-format.md`: spec grammar, lint rules L01-L28, commands, verify rules V01-V05, YAML scalar rules.
+- `references/spec-format.md`: spec grammar, lint rules L01-L35, commands, verify rules V01-V05, YAML scalar rules.
 - `references/model.md`: how Workbook/Query/Chart/Dashboard/Data Source relate; the document fields.
 - `references/v2-v3-traps.md`: v2 names that look right and are wrong.
 - `references/queries.md`: operations, expressions, row-level patterns, MariaDB quirks.

@@ -1,4 +1,4 @@
-"""Semantic lint for finsights specs (spec section 3: L01..L30).
+"""Semantic lint for finsights specs (spec section 3: L01..L35).
 
 L01/L03/L04 come from spec.shape_findings; everything else lives here.
 `lint_spec` never raises on malformed input: objects with shape errors are skipped by the
@@ -746,6 +746,136 @@ def _l30(ctx):
 				_l30_check(ctx, y.get("expr"), _p(p, "y", j, "expr"))
 
 
+# ---- L31..L35: UX standard content and format rules (all warnings) ------------------------------
+TEXT_CODE_RES = (
+	(re.compile(r"\b[A-Z]{2,4}-\d{3}\b"), "metric id"),
+	(re.compile(r"\bT[1-4]\b"), "tier code"),
+	(re.compile(r"\bR(?:1[0-5]|[1-9])\b"), "roadmap id"),
+)
+RATIO_EXPR_RE = re.compile(r"\bsum\s*\(.*\)\s*/\s*(?:nullif\s*\(\s*)?sum\s*\(", re.I | re.S)
+RATIO_NAME_RE = re.compile(r"(?:^|[_\s])(?:pct|rate|ratio)$", re.I)
+SIGNED_TOKENS = {"net", "difference", "diff", "variance", "delta"}
+
+
+def _plain_text(txt):
+	return HTML_TAG_RE.sub(" ", txt)
+
+
+def _text_items(ctx):
+	for di, d in _dicts(ctx.spec.get("dashboards")):
+		for ii, it in _dicts(d.get("items")):
+			if isinstance(it.get("text"), str):
+				yield _p("", "dashboards", di, "items", ii, "text"), it["text"]
+
+
+def _l31(ctx):
+	for ptr, txt in _text_items(ctx):
+		plain = _plain_text(txt)
+		found = [m for m in ("**", "`") if m in txt]
+		if re.match(r"\s*#", plain):
+			found.append("leading #")
+		if found:
+			ctx.add("L31", "warn", ptr, "text item contains markdown (" + ", ".join(f"`{m}`" for m in found) + ")",
+				"text items are HTML, not markdown; use <b>, <i>, <ul>, <li>, <p> or plain words")
+
+
+def _l32(ctx):
+	for ptr, txt in _text_items(ctx):
+		plain = _plain_text(txt)
+		for rx, label in TEXT_CODE_RES:
+			m = rx.search(plain)
+			if m:
+				ctx.add("L32", "warn", ptr, f"text item shows a {label} `{m.group()}`",
+					"internal codes belong in YAML comments, not user-facing text")
+
+
+def _measure_index(ctx, c):
+	q = ctx.qmap.get(c.get("query"))
+	res = {}
+	sm = q.get("summarize") if isinstance(q, dict) else None
+	if isinstance(sm, dict):
+		for _, m in _dicts(sm.get("measures")):
+			if isinstance(m.get("as"), str):
+				res[m["as"]] = m
+	return res
+
+
+def _yinfo(ctx, c, y, idx):
+	"""Effective {name, expr, agg, format, currency} for a chart y entry, inheriting from the query measure."""
+	d = y if isinstance(y, dict) else {"column": y}
+	name = d.get("as") if isinstance(d.get("as"), str) else (d.get("column") if isinstance(d.get("column"), str) else None)
+	base = idx.get(name, {}) if name else {}
+	get = lambda k: d.get(k) if d.get(k) is not None else base.get(k)  # noqa: E731
+	return {"name": name, "expr": get("expr"), "agg": get("agg"), "format": get("format"),
+		"currency": bool(get("currency_column")) or get("format") == "currency"}
+
+
+def _is_ratio(name, expr):
+	return bool((isinstance(expr, str) and RATIO_EXPR_RE.search(expr)) or (isinstance(name, str) and RATIO_NAME_RE.search(name)))
+
+
+def _l33(ctx):
+	seen = set()
+	for ci, c in _dicts(ctx.spec.get("charts")):
+		p = _p("", "charts", ci)
+		if ctx.is_bad(p):
+			continue
+		idx = _measure_index(ctx, c)
+		for j, y in enumerate(_list(c.get("y"))):
+			if not isinstance(y, (dict, str)):
+				continue
+			i = _yinfo(ctx, c, y, idx)
+			if i["name"] in idx:
+				seen.add((c.get("query"), i["name"]))
+			if _is_ratio(i["name"], i["expr"]) and i["format"] != "percent":
+				ctx.add("L33", "warn", _p(p, "y", j), f"chart `{c.get('id')}`: ratio measure `{i['name']}` has no `format: percent`",
+					"set `format: percent` on the measure so it renders as a percentage")
+	for qi, q in _dicts(ctx.spec.get("queries")):
+		p = _p("", "queries", qi)
+		sm = q.get("summarize")
+		if ctx.is_bad(p) or not isinstance(sm, dict):
+			continue
+		for j, m in _dicts(sm.get("measures")):
+			if (q.get("id"), m.get("as")) in seen:
+				continue
+			if _is_ratio(m.get("as"), m.get("expr")) and m.get("format") != "percent":
+				ctx.add("L33", "warn", _p(p, "summarize", "measures", j),
+					f"query `{q.get('id')}`: ratio measure `{m.get('as')}` has no `format: percent`",
+					"set `format: percent` on the measure so it renders as a percentage")
+
+
+def _l34(ctx):
+	for ci, c in _dicts(ctx.spec.get("charts")):
+		p = _p("", "charts", ci)
+		t = c.get("type")
+		if ctx.is_bad(p) or not isinstance(t, str) or CHART_ALIASES.get(t.strip().lower(), t.strip()).lower() != "donut":
+			continue
+		idx = _measure_index(ctx, c)
+		for j, y in enumerate(_list(c.get("y"))):
+			if not isinstance(y, (dict, str)):
+				continue
+			i = _yinfo(ctx, c, y, idx)
+			toks = set(re.split(r"[^a-z0-9]+", (i["name"] or "").lower()))
+			if toks & SIGNED_TOKENS:
+				ctx.add("L34", "warn", _p(p, "y", j), f"Donut `{c.get('id')}`: measure `{i['name']}` may be negative",
+					"a Donut cannot show negative slices; use a Bar chart for signed values")
+
+
+def _l35(ctx):
+	for ci, c in _dicts(ctx.spec.get("charts")):
+		p = _p("", "charts", ci)
+		if ctx.is_bad(p) or str(c.get("type")).strip().lower() in ("number", "kpi", "table", "pivot"):
+			continue  # separate tiles / table columns do not share a scale
+		idx = _measure_index(ctx, c)
+		infos = [_yinfo(ctx, c, y, idx) for y in _list(c.get("y")) if isinstance(y, (dict, str))]
+		cur = [i["name"] for i in infos if i["currency"]]
+		cnt = [i["name"] for i in infos if not i["currency"] and i["format"] != "percent"
+			and i["agg"] in ("count", "count_distinct")]
+		if cur and cnt:
+			ctx.add("L35", "warn", _p(p, "y"), f"chart `{c.get('id')}` mixes currency ({', '.join(map(str, cur))}) and count ({', '.join(map(str, cnt))}) measures",
+				"one axis cannot honestly show both scales; split into two charts")
+
+
 def _guard(fn, ctx):
 	try:
 		fn(ctx)
@@ -783,6 +913,8 @@ def lint_spec(spec, catalog, only=None) -> list:
 	_guard(_l28, ctx)
 	_guard(_l29, ctx)
 	_guard(_l30, ctx)
+	for fn in (_l31, _l32, _l33, _l34, _l35):
+		_guard(fn, ctx)
 	return _finish(ctx.out, only)
 
 

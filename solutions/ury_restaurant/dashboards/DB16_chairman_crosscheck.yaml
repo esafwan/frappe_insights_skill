@@ -1,7 +1,7 @@
 # DB16 Chairman brief cross-check. One chart per chairman PWA slide (architecture section 10) so each slide number can be
 # reconciled with Insights. The PWA API (ury.ury.api.chairman.get_brief) is not built or called here.
 # Base queries are copied verbatim from semantic_layer.yaml (only the ones this dashboard reads).
-# Date filter: no default window is pinned; default "Last 90 days" per portfolio. Demo data ends 2026-10-21, so "yesterday"
+# Date filter default: Last 30 days (UX standard daily-ops default). Demo data ends 2026-10-21, so "yesterday"
 # here = latest day inside the Date filter (clear the filter or set it to 2026-10-21 to reproduce the pinned acceptance date).
 workbook: {id: ury_db16_chairman_crosscheck, title: "URY DB16 Chairman Crosscheck", module: "URY", required_apps: [ury]}
 queries:
@@ -100,66 +100,68 @@ queries:
 
 charts:
   # Slide 1 (T1): latest day in the Date filter vs previous day. PWA compares same weekday last week (SAL-006 caveat).
-  - {id: db16_yesterday, title: "Yesterday Net Sales and Bills", query: fact_invoices, type: Number, comparison: true,
+  - {id: db16_yesterday, title: "Slide 1 - Last trading day: net sales and bills", query: fact_invoices, type: Number, comparison: true,
      date: {column: posting_date, granularity: day},
-     y: [{column: net_total, agg: sum, as: Net Sales, format: currency}, {column: name, agg: count, as: Bills}]}
+     y: [{expr: "sum(net_total).round(0)", as: "Net sales (₹)", format: currency}, {column: name, agg: count, as: Bills}]}
   # Slide 2 (T1): latest month in the filter vs previous month. Target (SAL-021) is T4: no target table yet.
-  - {id: db16_mtd, title: "Month to Date Net Sales", query: fact_invoices, type: Number, comparison: true,
+  - {id: db16_mtd, title: "Slide 2 - Month to date net sales", query: fact_invoices, type: Number, comparison: true,
      date: {column: posting_date, granularity: month},
-     y: [{column: net_total, agg: sum, as: Net Sales, format: currency}]}
+     y: [{expr: "sum(net_total).round(0)", as: "Net sales (₹)", format: currency}]}
   # Slide 3 (T3): one branch on this site.
-  - {id: db16_branch_rank, title: "Branch Ranking (T3)", query: fact_invoices, type: Row, limit: 10,
-     x: branch, y: [{column: net_total, agg: sum, as: Net Sales}], order: [{by: Net Sales, dir: desc}]}
+  - {id: db16_branch_rank, title: "Slide 3 - Net sales by branch (needs 2+ branches)", query: fact_invoices, type: Row, limit: 10,
+     x: branch, y: [{expr: "sum(net_total).round(0)", as: "Net sales (₹)"}], order: [{by: "Net sales (₹)", dir: desc}]}
   # Slide 4 (T1)
-  - {id: db16_channel, title: "Channel Mix", query: fact_invoices, type: Donut, limit: 10,
-     x: order_type, y: [{column: net_total, agg: sum, as: Net Sales}], order: [{by: Net Sales, dir: desc}]}
-  # Slide 5 (T1): top 3 / bottom 3 menu items (Non-menu excluded, CATEGORY_MAP v1).
-  - {id: db16_top_items, title: "Top 3 Items", query: fact_sales_lines_enriched, type: Row, limit: 3,
-     x: item_name, y: [{column: net_amount, agg: sum, as: Net Sales}], order: [{by: Net Sales, dir: desc}],
+  - {id: db16_channel, title: "Slide 4 - Net sales by order type (₹)", query: fact_invoices, type: Donut, limit: 10, max_slices: 5,
+     x: order_type, y: [{expr: "sum(net_total).round(0)", as: "Net sales (₹)"}], order: [{by: "Net sales (₹)", dir: desc}]}
+  # Slide 5 (T1): top 3 menu items (Non-menu excluded, CATEGORY_MAP v1).
+  - {id: db16_top_items, title: "Slide 5 - Top 3 dishes (₹)", query: fact_sales_lines_enriched, type: Row, limit: 3,
+     x: item_name, y: [{expr: "sum(net_amount).round(0)", as: "Net sales (₹)"}], order: [{by: "Net sales (₹)", dir: desc}],
      filters: [{column: category_family, op: "!=", value: "Non-menu"}]}
-  - {id: db16_bottom_items, title: "Bottom 3 Items", query: fact_sales_lines_enriched, type: Row, limit: 3,
-     x: item_name, y: [{column: net_amount, agg: sum, as: Net Sales}], order: [{by: Net Sales, dir: asc}],
-     filters: [{column: category_family, op: "!=", value: "Non-menu"}]}
-  # Slide 6 (T1)
-  - {id: db16_pay_mix, title: "Payment Mix", query: fact_payments, type: Donut, limit: 10,
-     x: mode_of_payment, y: [{column: amount, agg: sum, as: Tendered}], order: [{by: Tendered, dir: desc}]}
-  # Slide 7 (T1): cancelled bills and value lost.
-  - {id: db16_cancels, title: "Cancellations", query: fact_cancellations, type: Number,
-     y: [{column: name, agg: count, as: Cancelled Bills}, {column: grand_total, agg: sum, as: Value Lost, format: currency}]}
-  # Slide 8 (T2): served KOTs only; legacy minutes, SLA seeded 10/15 min.
-  - {id: db16_kitchen, title: "Kitchen Speed (T2)", query: fact_kot_headers, type: Number,
-     y: [{column: prod_minutes, agg: avg, as: Avg Prep Minutes}, {expr: "sum(sla_breach) / sum(is_served)", as: SLA Breach Rate, format: percent}],
+  # Slide 6 (T1): bottom 3 menu items. Excludes Non-menu, Unassigned, zero-qty and zero-sale lines.
+  - {id: db16_bottom_items, title: "Slide 6 - Bottom 3 dishes (₹)", query: fact_sales_lines_enriched, type: Row, limit: 3,
+     x: item_name, y: [{expr: "sum(net_amount).round(0)", as: "Net sales (₹)"}], order: [{by: "Net sales (₹)", dir: asc}],
+     filters: [{column: category_family, op: "!=", value: "Non-menu"}, {column: category_family, op: "!=", value: "Unassigned"}, {column: qty, op: ">", value: 0}, {column: net_amount, op: ">", value: 0}]}
+  # Slide 7 (T1)
+  - {id: db16_pay_mix, title: "Slide 7 - Payment mix (₹)", query: fact_payments, type: Donut, limit: 10, max_slices: 5,
+     x: mode_of_payment, y: [{expr: "sum(amount).round(0)", as: "Tendered (₹)"}], order: [{by: "Tendered (₹)", dir: desc}]}
+  # Slide 8 (T1): cancelled bills and cancelled value.
+  - {id: db16_cancels, title: "Slide 8 - Cancelled bills and value", query: fact_cancellations, type: Number,
+     y: [{column: name, agg: count, as: Cancelled bills}, {expr: "sum(grand_total).round(0)", as: "Cancelled value (₹)", format: currency}]}
+  # Slide 9 (T2): served KOTs only; legacy minutes, SLA seeded 10/15 min.
+  - {id: db16_kitchen, title: "Slide 9 - Kitchen speed (estimate)", query: fact_kot_headers, type: Number,
+     y: [{column: prod_minutes, agg: avg, as: "Avg prep time (min)"}, {expr: "sum(sla_breach) / sum(is_served)", as: "KOTs over target (%)", format: percent}],
      filters: [{column: is_served, op: "=", value: 1}]}
-  # Slide 9 (T3): consolidated closings only; demo differences are flat.
-  - {id: db16_cashup, title: "Cash-up Exceptions (T3)", query: fact_closing_details, type: Number,
-     y: [{column: difference, agg: sum, as: Total Difference, format: currency}, {column: has_variance, agg: sum, as: Variance Rows}]}
-  # Slide 10 (T2): Paid population, Dine In, bills with covers only (architecture section 4).
-  - {id: db16_covers, title: "Covers and Spend per Cover (T2)", query: fact_invoices, type: Number,
-     y: [{column: pax, agg: sum, as: Covers}, {expr: "sum(net_total) / sum(pax)", as: Spend per Cover}],
+  # Slide 10 (T3): consolidated closings only; demo differences are flat.
+  - {id: db16_cashup, title: "Slide 10 - Cash-up difference", query: fact_closing_details, type: Number,
+     y: [{column: difference, agg: sum, as: "Cash-up difference (₹)", format: currency}, {column: has_variance, agg: sum, as: Closings with a difference}]}
+  # Slide 11 (T2): Paid population, Dine In, bills with covers only (architecture section 4).
+  - {id: db16_covers, title: "Slide 11 - Covers and spend per cover (estimate)", query: fact_invoices, type: Number,
+     y: [{column: pax, agg: sum, as: Covers}, {expr: "sum(net_total) / sum(pax).round(0)", as: "Spend per cover (₹)", format: currency}],
      filters: [{column: order_type, op: "=", value: "Dine In"}, {column: population, op: "=", value: "Paid"}, {column: pax, op: ">", value: 0}]}
-  # Slide 11 (T2): seeded Daily P and L.
-  - {id: db16_margin, title: "Gross Margin (T2)", query: fact_daily_pnl, type: Number,
-     y: [{column: gross_profit, agg: sum, as: Gross Profit, format: currency}, {expr: "sum(gross_profit) / sum(net_sales)", as: Gross Margin, format: percent}]}
+  # Slide 12 (T2): seeded Daily P and L.
+  - {id: db16_margin, title: "Slide 12 - Gross margin (estimate)", query: fact_daily_pnl, type: Number,
+     y: [{expr: "sum(gross_profit).round(0)", as: "Gross profit (₹)", format: currency}, {expr: "sum(gross_profit) / sum(net_sales)", as: "Gross margin (%)", format: percent}]}
 dashboards:
   - id: chairman_crosscheck
-    title: "URY DB16 Chairman Crosscheck"
+    title: "Chairman brief check"
     filters:
-      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"},
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"}, layout: {x: 0, y: 2, w: 5, h: 1},
          applies_to: {fact_invoices: posting_date, fact_sales_lines_enriched: posting_date, fact_payments: posting_date, fact_cancellations: posting_date, fact_closing_details: posting_date, fact_kot_headers: date, fact_daily_pnl: date}}
-      - {id: f_branch, label: Branch, type: string, icon: store,
+      - {id: f_branch, label: Branch, type: string, icon: store, layout: {x: 5, y: 2, w: 5, h: 1},
          applies_to: {fact_invoices: branch, fact_sales_lines_enriched: branch, fact_payments: branch, fact_cancellations: branch, fact_closing_details: branch, fact_kot_headers: branch, fact_daily_pnl: branch}}
     items:
-      - {chart: db16_yesterday, x: 0, y: 1, w: 10, h: 3}
-      - {chart: db16_mtd, x: 10, y: 1, w: 10, h: 3}
-      - {chart: db16_branch_rank, x: 0, y: 4, w: 10, h: 6}
-      - {chart: db16_channel, x: 10, y: 4, w: 10, h: 6}
-      - {chart: db16_top_items, x: 0, y: 10, w: 10, h: 6}
-      - {chart: db16_bottom_items, x: 10, y: 10, w: 10, h: 6}
-      - {chart: db16_pay_mix, x: 0, y: 16, w: 10, h: 6}
-      - {chart: db16_cancels, x: 10, y: 16, w: 10, h: 3}
-      - {chart: db16_kitchen, x: 10, y: 19, w: 10, h: 3}
-      - {chart: db16_cashup, x: 0, y: 22, w: 10, h: 3}
-      - {chart: db16_covers, x: 10, y: 22, w: 10, h: 3}
-      - {chart: db16_margin, x: 0, y: 25, w: 10, h: 3}
-      - {text: "Slide 1 compares the same weekday last week in the PWA; Insights compares the previous day. Slide 2 target: no target table yet (SAL-021, R13).", x: 10, y: 25, w: 10, h: 3}
-      - {text: "**T3** SAL-012: one branch on this site, so the ranking has a single bar. **T3** PAY-007: cash-up covers Consolidated closings only and demo differences are flat. **T2** KIT-003/KIT-004 use legacy KOT minutes; SAL-015/016 are Paid Dine In only; MAR-001/002 come from seeded Daily P and L (recipe cost covers about 6-8% of revenue).", x: 0, y: 28, w: 20, h: 3}
+      - {text: "<p><b>Chairman brief check.</b> Each tile matches one slide of the daily chairman brief so you can confirm its numbers. The brief compares with the same weekday last week; this page compares with the previous day.</p>", x: 0, y: 0, w: 20, h: 2}
+      - {chart: db16_yesterday, x: 0, y: 3, w: 10, h: 3}
+      - {chart: db16_mtd, x: 10, y: 3, w: 10, h: 3}
+      - {chart: db16_branch_rank, x: 0, y: 6, w: 8, h: 4}
+      - {chart: db16_channel, x: 8, y: 6, w: 12, h: 6}
+      - {chart: db16_top_items, x: 0, y: 12, w: 10, h: 5}
+      - {chart: db16_bottom_items, x: 10, y: 12, w: 10, h: 5}
+      - {chart: db16_pay_mix, x: 0, y: 17, w: 10, h: 6}
+      - {chart: db16_cancels, x: 10, y: 17, w: 10, h: 3}
+      - {chart: db16_kitchen, x: 10, y: 20, w: 10, h: 3}
+      - {chart: db16_cashup, x: 0, y: 23, w: 10, h: 3}
+      - {chart: db16_covers, x: 10, y: 23, w: 10, h: 3}
+      - {chart: db16_margin, x: 0, y: 26, w: 10, h: 3}
+      - {text: "<p><b>Not recorded yet:</b> monthly sales target for Slide 2. Start entering targets in the sales target screen; this section fills automatically.</p>", x: 10, y: 26, w: 10, h: 3}
+      - {text: "<p>Kitchen speed and covers are estimates; margin comes from the daily P and L; cash-up covers closed shifts only.</p>", x: 0, y: 29, w: 20, h: 1}

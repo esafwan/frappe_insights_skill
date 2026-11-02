@@ -4,25 +4,7 @@
 # Base queries copied verbatim from semantic_layer.yaml (probe charts dropped).
 workbook: {id: ury_db05_department_production, title: "URY DB05 Department Production", module: "URY", required_apps: [ury]}
 queries:
-  # fact_sales_lines (builder, T1, the canonical revenue line). Grain: one submitted POS Invoice Item.
-  # Revenue = SUM(net_amount). Header measures (covers, grand_total) must NOT be summed here (line fan-out).
-  # department = CONFIGURED department (URY Item Production Configuration, joined on item only: safe while one config
-  # row per item; with a 2nd branch use fact_sales_lines_enriched, whose join is item AND branch).
-  # Date column: posting_date.
-  - id: fact_sales_lines
-    title: "fact_sales_lines"
-    table: "POS Invoice Item"
-    joins:
-      - {table: "POS Invoice", type: inner, on: [parent, name], columns: [posting_date, posting_time, branch, company, order_type, waiter, cashier, status, is_return, pos_profile, restaurant_table]}
-      - {table: "URY Item Production Configuration", type: left, on: [item_code, item], columns: [department, production_unit, production_policy]}
-    filters:
-      - {column: docstatus, op: "=", value: 1}
-      - {column: is_return, op: "=", value: 0}
-    mutate:
-      - {as: population, type: String, expr: "if_else(status == 'Consolidated', 'Consolidated', 'Paid')"}
-      - {as: hour_of_day, type: Integer, expr: "hour(posting_time)"}
-    select: [name, parent, posting_date, hour_of_day, branch, company, order_type, waiter, cashier, population, pos_profile, restaurant_table, item_code, item_name, item_group, department, production_unit, production_policy, warehouse, qty, amount, net_amount, discount_amount, price_list_rate]
-
+  # fact_sales_lines (warehouse donut) dropped per UX change list; query removed as no chart uses it.
   # fact_sales_lines_enriched (sql, T1/T2). Same grain as fact_sales_lines plus: cleaned menu_category and
   # category_family (CATEGORY_MAP v1), branch-safe configured department, BOM-based estimated cost.
   # Why sql: (1) the cleaned category is a 60-value CASE over Item Group; (2) the config join needs a composite key
@@ -81,42 +63,51 @@ queries:
     select: [name, parent, plan_date, branch, company, status, service_period, enforcement_mode, item_code, department, production_unit, production_policy, stock_uom, qty, committed_qty, fulfilled_qty, under_qty, over_qty]
 
 charts:
-  # S1 Money by configured department (T2)
-  - {id: db05_dept_rev, title: "Revenue by Configured Department (T2)", query: fact_sales_lines_enriched, type: Row, limit: 15,
-     x: department, y: [{column: net_amount, agg: sum, as: Net Sales, format: currency}], order: [{by: Net Sales, dir: desc}]}
-  - {id: db05_unmapped, title: "Revenue with No Department (T1)", query: fact_sales_lines_enriched, type: Number,
+  # S1 KPI row (UX change list DB05 P0-1)
+  - {id: db05_kpi_kots, title: "KOTs", query: fact_kot_headers, type: Number,
+     filters: [{column: type, op: "!=", value: "Duplicate"}],
+     y: [{column: name, agg: count, as: KOTs}]}
+  - {id: db05_kpi_dishes, title: "Dishes made", query: fact_kot_lines, type: Number,
+     y: [{column: qty_num, agg: sum, as: Dishes made}]}
+  - {id: db05_kpi_plan, title: "Plan fulfilled (%)", query: fact_sales_plan_items, type: Number,
+     y: [{expr: "sum(fulfilled_qty) / sum(qty)", as: Plan fulfilled, format: percent}]}
+  # Unmapped department sales moved into the KPI row (fix-in-setup tile)
+  - {id: db05_unmapped, title: "Sales with no department (₹)", query: fact_sales_lines_enriched, type: Number,
      filters: [{column: department, op: "=", value: "Unmapped"}],
-     y: [{column: net_amount, agg: sum, as: Unmapped Net Sales, format: currency}]}
-  - {id: db05_policy, title: "Revenue by Production Policy (T2)", query: fact_sales_lines_enriched, type: Donut, limit: 6,
-     x: production_policy, y: [{column: net_amount, agg: sum, as: Net Sales}], order: [{by: Net Sales, dir: desc}]}
-  - {id: db05_warehouse, title: "Revenue by Kitchen Warehouse", query: fact_sales_lines, type: Donut, limit: 6,
-     x: warehouse, y: [{column: net_amount, agg: sum, as: Net Sales}], order: [{by: Net Sales, dir: desc}]}
-  # S2 Work by executed unit (T1)
-  - {id: db05_kots_unit, title: "KOTs by Executed Unit", query: fact_kot_headers, type: Row, limit: 15,
+     y: [{expr: "sum(floor(net_amount + 0.5))", as: Sales with no department, format: currency}]}
+  # S2 Work by executed station
+  - {id: db05_kots_unit, title: "KOTs by cooking station (count)", query: fact_kot_headers, type: Row, limit: 15,
      filters: [{column: type, op: "!=", value: "Duplicate"}],
      x: production, y: [{column: name, agg: count, as: KOTs}], order: [{by: KOTs, dir: desc}]}
-  - {id: db05_qty_unit, title: "Kitchen Quantity by Unit and Item", query: fact_kot_lines, type: Table, limit: 100,
-     rows: [production, item_name], y: [{column: qty_num, agg: sum, as: Quantity}], order: [{by: Quantity, dir: desc}]}
-  # S3 Plan attainment by department (T1)
-  - {id: db05_plan_dept, title: "Plan Attainment by Department", query: fact_sales_plan_items, type: Row, limit: 15,
-     x: department, y: [{expr: "sum(fulfilled_qty) / sum(qty)", as: Attainment, format: percent}], order: [{by: Attainment, dir: desc}]}
+  - {id: db05_top_dishes, title: "Top 15 dishes made (qty)", query: fact_kot_lines, type: Row, limit: 15,
+     x: item_name, y: [{column: qty_num, agg: sum, as: Quantity}], order: [{by: Quantity, dir: desc}]}
+  # S3 Plan vs sales
+  - {id: db05_plan_dept, title: "Plan fulfilled by department (%)", query: fact_sales_plan_items, type: Row, limit: 15,
+     x: department, y: [{expr: "sum(fulfilled_qty) / sum(qty)", as: Plan fulfilled, format: percent}], order: [{by: Plan fulfilled, dir: desc}]}
+  - {id: db05_dept_rev, title: "Sales by assigned department (₹)", query: fact_sales_lines_enriched, type: Row, limit: 15,
+     filters: [{column: department, op: "!=", value: "Unmapped"}],
+     x: department, y: [{expr: "sum(floor(net_amount + 0.5))", as: Net sales, format: currency}], order: [{by: Net sales, dir: desc}]}
+  # dropped per change list: db05_policy, db05_warehouse donuts and db05_qty_unit table
 
 dashboards:
   - id: department_production
-    title: "Department and Kitchen Production"
+    title: "Kitchen stations and production"
     filters:
-      - {id: f_date, label: Date, type: date, icon: calendar,
-         applies_to: {fact_sales_lines_enriched: posting_date, fact_sales_lines: posting_date, fact_kot_headers: date, fact_kot_lines: date, fact_sales_plan_items: plan_date}}
-      - {id: f_branch, label: Branch, type: string, icon: building-2,
-         applies_to: {fact_sales_lines_enriched: branch, fact_sales_lines: branch, fact_kot_headers: branch, fact_kot_lines: branch, fact_sales_plan_items: branch}}
-      - {id: f_department, label: Department, type: string, icon: chef-hat,
-         applies_to: {fact_sales_lines_enriched: department, fact_sales_lines: department, fact_kot_headers: production, fact_kot_lines: production, fact_sales_plan_items: department}}
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"}, layout: {x: 0, y: 2, w: 5, h: 1},
+         applies_to: {fact_sales_lines_enriched: posting_date, fact_kot_headers: date, fact_kot_lines: date, fact_sales_plan_items: plan_date}}
+      - {id: f_branch, label: Branch, type: string, icon: building-2, layout: {x: 5, y: 2, w: 5, h: 1},
+         applies_to: {fact_sales_lines_enriched: branch, fact_kot_headers: branch, fact_kot_lines: branch, fact_sales_plan_items: branch}}
+      - {id: f_department, label: Department, type: string, icon: chef-hat, layout: {x: 10, y: 2, w: 5, h: 1},
+         applies_to: {fact_sales_lines_enriched: department, fact_kot_headers: production, fact_kot_lines: production, fact_sales_plan_items: department}}
     items:
-      - {chart: db05_dept_rev, x: 0, y: 1, w: 10, h: 9}
-      - {chart: db05_unmapped, x: 10, y: 1, w: 5, h: 4}
-      - {chart: db05_policy, x: 15, y: 1, w: 5, h: 9}
-      - {chart: db05_warehouse, x: 10, y: 5, w: 5, h: 5}
-      - {chart: db05_kots_unit, x: 0, y: 10, w: 10, h: 8}
-      - {chart: db05_qty_unit, x: 10, y: 10, w: 10, h: 8}
-      - {chart: db05_plan_dept, x: 0, y: 18, w: 10, h: 7}
-      - {text: "<p><b>Configured department (money) and executed unit (kitchen work) disagree on 74 of 203 KOT lines; they are shown separately on purpose.</b></p><p><b>T4</b> WST-004 wastage and YLD-008 yield by department have no data (Wastage 0 rows; Yield Check department empty): roadmap R1, R8. 17.4% of revenue has no configured department: R10.</p>", x: 10, y: 18, w: 10, h: 7}
+      - {text: "<p><b>Kitchen stations and production.</b> How much each station made, whether it met the sales plan, and which department the sales belong to. For kitchen head. Default period: last 30 days; every filter applies to every chart.</p>", x: 0, y: 0, w: 20, h: 2}
+      - {chart: db05_kpi_kots, x: 0, y: 3, w: 5, h: 3}
+      - {chart: db05_kpi_dishes, x: 5, y: 3, w: 5, h: 3}
+      - {chart: db05_kpi_plan, x: 10, y: 3, w: 5, h: 3}
+      - {chart: db05_unmapped, x: 15, y: 3, w: 5, h: 3}
+      - {text: "<p><b>Two views of the kitchen.</b> Work counts KOTs by the station that cooked them; sales are credited to the department set on the item. They differ on about 1 in 3 KOT lines; that is expected.</p>", x: 0, y: 6, w: 20, h: 2}
+      - {chart: db05_kots_unit, x: 0, y: 8, w: 10, h: 8}
+      - {chart: db05_top_dishes, x: 10, y: 8, w: 10, h: 8}
+      - {chart: db05_plan_dept, x: 0, y: 16, w: 10, h: 7}
+      - {chart: db05_dept_rev, x: 10, y: 16, w: 10, h: 7}
+      - {text: "<p><b>Not recorded yet:</b> wastage and yield by department. Log wastage and set the department on each yield check; this section fills automatically.</p>", x: 0, y: 23, w: 20, h: 2}

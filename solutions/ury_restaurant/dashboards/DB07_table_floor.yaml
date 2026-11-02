@@ -1,6 +1,6 @@
 # DB07 Table & floor timing (audience: floor/FOH manager, branch manager). Levels: branch, waiter, table/room.
 # Queries are copied verbatim from semantic_layer.yaml: fact_table_sessions, dim_table, fact_invoices.
-# Population rules: covers (db07_covers) Paid only; dwell uses dwell_valid = 1 only (seeded caveat, see banner).
+# Population rules: covers (db07_covers) Paid only; dwell uses dwell_valid = 1 only (T2 proxy, see footnote and bottom caveat).
 workbook: {id: ury_db07_table_floor, title: "URY DB07 Table And Floor", module: "URY", required_apps: [ury]}
 queries:
   - id: fact_invoices
@@ -35,49 +35,54 @@ queries:
     select: [name, branch, restaurant, restaurant_room, no_of_seats, minimum_seating, is_take_away, occupied, latest_invoice_time]
 
 charts:
-  # S1 Floor (T1)
-  - {id: db07_kpi, title: "Dine-in Bills and Sales", query: fact_table_sessions, type: Number,
+  # S1 Floor (T1). KPI row: five tiles w:4, one measure each (covers tile carries covers + spend per cover)
+  - {id: db07_bills, title: "Dine-in bills (count)", query: fact_table_sessions, type: Number,
      filters: [{column: is_take_away, op: "=", value: 0}],
-     y: [{column: name, agg: count, as: "Dine-in Bills"}, {column: net_total, agg: sum, as: "Net Sales", format: currency}]}
-  - {id: db07_occupied, title: "Tables Occupied Now", query: dim_table, type: Number,
+     y: [{column: name, agg: count, as: "Dine-in bills"}]}
+  - {id: db07_kpi, title: "Net sales (₹)", query: fact_table_sessions, type: Number,
      filters: [{column: is_take_away, op: "=", value: 0}],
-     y: [{column: occupied, agg: sum, as: "Occupied"}, {column: name, agg: count, as: "Tables"}]}
-  # S2 Revenue by place
-  - {id: db07_room, title: "Revenue by Room", query: fact_table_sessions, type: Donut,
+     y: [{expr: "sum(net_total).round(0)", as: "Net sales", format: currency}]}
+  - {id: db07_occupied, title: "Tables occupied now (live)", query: dim_table, type: Number,
      filters: [{column: is_take_away, op: "=", value: 0}],
-     x: room, y: [{column: net_total, agg: sum, as: "Net Sales"}]}
-  - {id: db07_table, title: "Revenue by Table (Top 20)", query: fact_table_sessions, type: Row, limit: 20,
-     filters: [{column: is_take_away, op: "=", value: 0}],
-     x: restaurant_table, y: [{column: net_total, agg: sum, as: "Net Sales"}], order: [{by: "Net Sales", dir: desc}]}
+     y: [{column: occupied, agg: sum, as: "Occupied"}]}
   # S3 Covers (T2): Paid only, dine-in, pax > 0
-  - {id: db07_covers, title: "Covers and Spend per Cover (T2)", query: fact_invoices, type: Number,
+  - {id: db07_covers, title: "Covers and spend per cover (₹)", query: fact_invoices, type: Number,
      filters: [{column: order_type, op: "=", value: "Dine In"}, {column: population, op: "=", value: "Paid"}, {column: pax, op: ">", value: 0}],
-     y: [{column: pax, agg: sum, as: "Covers"}, {expr: "sum(net_total) / sum(pax)", as: "Spend per Cover", format: currency}]}
-  # S4 Dwell (T2): valid dwell only; the all/valid counts live in db07_dq
-  - {id: db07_dwell, title: "Average Dwell Minutes (T2)", query: fact_table_sessions, type: Number,
+     y: [{column: pax, agg: sum, as: "Covers"}, {expr: "(sum(net_total) / sum(pax)).round(0)", as: "Spend per cover", format: currency}]}
+  # S4 Dwell (T2 estimate): valid dwell only (dwell_valid = 1); db07_dq (Valid/All bills) dropped, footnote replaces it
+  - {id: db07_dwell, title: "Avg time at table (min) (estimate)", query: fact_table_sessions, type: Number,
      filters: [{column: dwell_valid, op: "=", value: 1}],
-     y: [{column: dwell_minutes, agg: avg, as: "Dwell (valid)"}]}
-  - {id: db07_dq, title: "Dwell Data Coverage (T2)", query: fact_table_sessions, type: Number,
-     y: [{column: dwell_valid, agg: sum, as: "Valid Bills"}, {column: name, agg: count, as: "All Bills"}]}
-  - {id: db07_turns, title: "Table Turns per Day (T2)", query: fact_table_sessions, type: Line, limit: 366,
+     y: [{expr: "avg(dwell_minutes).round(0)", as: "Avg time at table"}]}
+  # S2 Revenue by place
+  - {id: db07_room, title: "Net sales by room (₹)", query: fact_table_sessions, type: Donut, max_slices: 5,
+     filters: [{column: is_take_away, op: "=", value: 0}],
+     x: room, y: [{expr: "sum(net_total).round(0)", as: "Net sales"}]}
+  # waiting-list pseudo tables (names starting "waiting") excluded from the ranking
+  - {id: db07_table, title: "Net sales by table, top 15 (₹)", query: fact_table_sessions, type: Row, limit: 15,
+     filters: [{column: is_take_away, op: "=", value: 0}, {column: restaurant_table, op: not_contains, value: "waiting"}],
+     x: restaurant_table, y: [{expr: "sum(net_total).round(0)", as: "Net sales"}], order: [{by: "Net sales", dir: desc}]}
+  # Follows f_date (default Last 30 days)
+  - {id: db07_turns, title: "Table turns per day (bills per table)", query: fact_table_sessions, type: Bar, limit: 366,
      filters: [{column: is_take_away, op: "=", value: 0}],
      x: {column: posting_date, granularity: day},
-     y: [{expr: "count(name) / distinct_count(restaurant_table)", as: "Turns per Table"}]}
+     y: [{expr: "(count(name) / distinct_count(restaurant_table)).round(1)", as: "Turns per table"}]}
 dashboards:
   - id: db07_table_floor
-    title: "URY DB07 Table And Floor"
+    title: "Tables and floor"
     filters:
-      - {id: f_date, label: Date, type: date, icon: calendar, applies_to: {fact_table_sessions: posting_date, fact_invoices: posting_date}}
-      - {id: f_branch, label: Branch, type: string, icon: store, applies_to: {fact_table_sessions: branch, dim_table: branch, fact_invoices: branch}}
-      - {id: f_waiter, label: Waiter, type: string, icon: user, applies_to: {fact_table_sessions: waiter, fact_invoices: waiter}}
-      - {id: f_population, label: Population, type: string, icon: users, applies_to: {fact_table_sessions: population, fact_invoices: population}}
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"}, layout: {x: 0, y: 2, w: 5, h: 1}, applies_to: {fact_table_sessions: posting_date, fact_invoices: posting_date}}
+      - {id: f_branch, label: Branch, type: string, icon: store, layout: {x: 5, y: 2, w: 5, h: 1}, applies_to: {fact_table_sessions: branch, dim_table: branch, fact_invoices: branch}}
+      - {id: f_waiter, label: Waiter, type: string, icon: user, layout: {x: 10, y: 2, w: 5, h: 1}, applies_to: {fact_table_sessions: waiter, fact_invoices: waiter}}
+      - {id: f_population, label: Population, type: string, icon: users, layout: {x: 15, y: 2, w: 5, h: 1}, applies_to: {fact_table_sessions: population, fact_invoices: population}}
     items:
-      - {chart: db07_kpi, x: 0, y: 1, w: 10, h: 3}
-      - {chart: db07_occupied, x: 10, y: 1, w: 10, h: 3}
-      - {chart: db07_room, x: 0, y: 4, w: 8, h: 9}
-      - {chart: db07_table, x: 8, y: 4, w: 12, h: 9}
-      - {chart: db07_covers, x: 0, y: 13, w: 10, h: 3}
-      - {chart: db07_dwell, x: 10, y: 13, w: 10, h: 3}
-      - {chart: db07_dq, x: 0, y: 16, w: 20, h: 3}
-      - {chart: db07_turns, x: 0, y: 19, w: 20, h: 7}
-      - {text: "<p><b>T2</b> Dwell (TBL-004) = invoice creation to payment, not seat to clear; half the demo dine-in bills have 00:00:00 and the rest are seeded at about 30 min. Covers (SAL-015/016) are Paid bills only. <b>T3</b> TBL-008 over-capacity and TBL-011 service response (4 requests) are too small to chart. <b>T4</b> TBL-009 RevPASH and TBL-010 utilisation need opening hours (R9) and seat/clear stamps (R5).</p>", x: 0, y: 26, w: 20, h: 3}
+      - {text: "<p><b>Tables and floor.</b> Which rooms and tables earn, how many covers you serve and how long guests stay. For floor manager and branch manager. Default period: last 30 days; every filter applies to every chart.</p>", x: 0, y: 0, w: 20, h: 2}
+      - {chart: db07_bills, x: 0, y: 3, w: 4, h: 3}
+      - {chart: db07_kpi, x: 4, y: 3, w: 4, h: 3}
+      - {chart: db07_occupied, x: 8, y: 3, w: 4, h: 3}
+      - {chart: db07_covers, x: 12, y: 3, w: 4, h: 3}
+      - {chart: db07_dwell, x: 16, y: 3, w: 4, h: 3}
+      - {text: "<p>Avg time at table is based on dine-in bills with a recorded time (about half).</p>", x: 0, y: 6, w: 20, h: 1}
+      - {chart: db07_room, x: 0, y: 7, w: 8, h: 9}
+      - {chart: db07_table, x: 8, y: 7, w: 12, h: 9}
+      - {chart: db07_turns, x: 0, y: 16, w: 20, h: 7}
+      - {text: "<p><b>Estimate:</b> time at table runs from bill created to bill paid, not seated to cleared; about half of dine-in bills have no time and are left out. Covers count paid bills only.</p><p><b>Not recorded yet:</b> seat utilisation and revenue per seat-hour. Needs opening hours and seat and clear times.</p>", x: 0, y: 23, w: 20, h: 2}

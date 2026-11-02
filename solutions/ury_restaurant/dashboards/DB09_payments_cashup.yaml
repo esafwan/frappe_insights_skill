@@ -52,43 +52,68 @@ queries:
   # fact_kot_headers (builder, T2). Grain: one submitted URY KOT. The SLA target is joined from POS Profile
   # (custom_kot_warning_time: 15 'URY', 10 'URY Branch'). prod_minutes = legacy production_time (MINUTES, text);
 charts:
-  - {id: db09_tender, title: "Tendered Amount", query: fact_payments, type: Number,
-     y: [{column: amount, agg: sum, as: Tendered, format: currency}, {column: parent, agg: count, as: Tender Lines}]}
-  - {id: db09_collected, title: "Collected vs Billed", query: fact_invoices, type: Number,
-     y: [{column: paid_amount, agg: sum, as: Paid Amount, format: currency}, {column: change_amount, agg: sum, as: Change Given, format: currency}, {column: rounded_total, agg: sum, as: Billed Rounded, format: currency}]}
-  - {id: db09_unclosed, title: "Unclosed Sales (Paid Bills)", query: fact_invoices, type: Number,
+  # Tiles: one chart per tile (w:4). Whole rupees via round(). Billed uses rounded_total (reconciles to tender).
+  - {id: db09_tender, title: "Tendered (₹)", query: fact_payments, type: Number,
+     y: [{expr: "sum(amount).round(0)", as: "Tendered (₹)", format: currency}]}
+  - {id: db09_collected, title: "Collected (₹)", query: fact_invoices, type: Number,
+     y: [{expr: "sum(paid_amount).round(0)", as: "Collected (₹)", format: currency}]}
+  - {id: db09_billed, title: "Billed (₹)", query: fact_invoices, type: Number,
+     y: [{expr: "sum(rounded_total).round(0)", as: "Billed (₹)", format: currency}]}
+  - {id: db09_unclosed, title: "Not yet closed (₹)", query: fact_invoices, type: Number,
      filters: [{column: population, op: "=", value: "Paid"}],
-     y: [{column: net_total, agg: sum, as: Unclosed Net Sales, format: currency}, {column: name, agg: count, as: Unclosed Bills}]}
-  - {id: db09_mode, title: "Tender Mix by Mode", query: fact_payments, type: Donut, limit: 10,
-     x: mode_of_payment, y: [{column: amount, agg: sum, as: Tendered}], order: [{by: Tendered, dir: desc}]}
-  - {id: db09_mode_ot, title: "Tender by Order Type and Mode", query: fact_payments, type: Bar, limit: 50, stack: true,
-     x: order_type, split_by: {column: mode_of_payment, max: 6}, y: [{column: amount, agg: sum, as: Tendered}]}
-  - {id: db09_exp_counted, title: "Expected vs Counted by Day", query: fact_closing_details, type: Line, limit: 366,
+     y: [{expr: "sum(net_total).round(0)", as: "Not yet closed (₹)", format: currency}]}
+  - {id: db09_unclosed_n, title: "Bills not yet closed", query: fact_invoices, type: Number,
+     filters: [{column: population, op: "=", value: "Paid"}],
+     y: [{column: name, agg: count, as: "Bills not yet closed"}]}
+  - {id: db09_mode, title: "Tendered by payment mode (₹)", query: fact_payments, type: Donut, limit: 5, max_slices: 5,
+     x: mode_of_payment, y: [{expr: "sum(amount).round(0)", as: "Tendered (₹)"}], order: [{by: "Tendered (₹)", dir: desc}]}
+  - {id: db09_mode_ot, title: "Tendered by order type and mode (₹)", query: fact_payments, type: Bar, limit: 50, stack: true,
+     x: order_type, split_by: {column: mode_of_payment, max: 4}, y: [{expr: "sum(amount).round(0)", as: "Tendered (₹)"}]}
+  # Counted = closing_amount (counted cash at close); Expected = expected_amount.
+  - {id: db09_exp_counted, title: "Expected vs counted by day (₹)", query: fact_closing_details, type: Line, limit: 366,
      x: {column: posting_date, granularity: day},
-     y: [{column: expected_amount, agg: sum, as: Expected}, {column: closing_amount, agg: sum, as: Counted}]}
-  - {id: db09_variance, title: "Cash-up Variance (T3)", query: fact_closing_details, type: Number,
-     y: [{column: difference, agg: sum, as: Variance, format: currency}, {column: has_variance, agg: sum, as: Lines With Variance}]}
-  - {id: db09_cashier, title: "Net Sales by Cashier", query: fact_invoices, type: Row, limit: 15,
-     x: cashier, y: [{column: net_total, agg: sum, as: Net Sales}], order: [{by: Net Sales, dir: desc}]}
+     y: [{expr: "sum(expected_amount).round(0)", as: "Expected (₹)"}, {expr: "sum(closing_amount).round(0)", as: "Counted (₹)"}]}
+  - {id: db09_diff, title: "Cash difference (₹)", query: fact_closing_details, type: Number,
+     y: [{column: difference, agg: sum, as: "Cash difference (₹)", format: currency}]}
+  - {id: db09_variance, title: "Lines with a difference", query: fact_closing_details, type: Number,
+     y: [{column: has_variance, agg: sum, as: "Lines with a difference"}]}
+  - {id: db09_diff_shifts, title: "Shifts with a cash difference (₹)", query: fact_closing_details, type: Table, limit: 15,
+     filters: [{column: difference, op: "!=", value: 0}],
+     rows: [{column: posting_date, as: Date}, {column: user, as: Cashier}, {column: mode_of_payment, as: Mode}],
+     y: [{expr: "sum(expected_amount).round(0)", as: "Expected (₹)"}, {expr: "sum(closing_amount).round(0)", as: "Counted (₹)"},
+          {column: difference, agg: sum, as: "Difference (₹)"}],
+     order: [{by: "Difference (₹)", dir: desc}]}
+  # SKIPPED (needs shared-layer join User.full_name -> cashier_name): full names on this axis. Administrator excluded.
+  - {id: db09_cashier, title: "Net sales by cashier (₹)", query: fact_invoices, type: Row, limit: 15,
+     filters: [{column: cashier, op: "!=", value: "Administrator"}],
+     x: cashier, y: [{expr: "sum(net_total).round(0)", as: "Net sales (₹)"}], order: [{by: "Net sales (₹)", dir: desc}]}
 dashboards:
   - id: payments_cashup
-    title: "Payments and Cash-up"
+    title: "Payments and cash-up"
     filters:
-      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"},
+      - {id: f_date, label: Date, type: date, icon: calendar, layout: {x: 0, y: 2, w: 5, h: 1}, default: {op: within, value: "Last 30 days"},
          applies_to: {fact_payments: posting_date, fact_invoices: posting_date, fact_closing_details: posting_date}}
-      - {id: f_branch, label: Branch, type: string, icon: building-2,
+      - {id: f_branch, label: Branch, type: string, icon: building-2, layout: {x: 5, y: 2, w: 5, h: 1},
          applies_to: {fact_payments: branch, fact_invoices: branch, fact_closing_details: branch}}
-      - {id: f_order_type, label: Order Type, type: string, icon: utensils,
+      - {id: f_order_type, label: Order type, type: string, icon: utensils, layout: {x: 10, y: 2, w: 5, h: 1},
          applies_to: {fact_payments: order_type, fact_invoices: order_type}}
-      - {id: f_mode, label: Mode of Payment, type: string, icon: credit-card,
+      - {id: f_mode, label: Payment mode, type: string, icon: credit-card, layout: {x: 15, y: 2, w: 5, h: 1},
          applies_to: {fact_payments: mode_of_payment, fact_closing_details: mode_of_payment}}
     items:
-      - {chart: db09_tender, x: 0, y: 1, w: 7, h: 3}
-      - {chart: db09_collected, x: 7, y: 1, w: 7, h: 3}
-      - {chart: db09_unclosed, x: 14, y: 1, w: 6, h: 3}
-      - {chart: db09_mode, x: 0, y: 4, w: 7, h: 9}
-      - {chart: db09_mode_ot, x: 7, y: 4, w: 13, h: 9}
-      - {chart: db09_exp_counted, x: 0, y: 13, w: 12, h: 8}
-      - {chart: db09_variance, x: 12, y: 13, w: 8, h: 3}
-      - {chart: db09_cashier, x: 12, y: 16, w: 8, h: 5}
-      - {text: "**T3** All 308 closing lines balance to 0 on this site (seeded). Closings cover Consolidated bills only; Paid bills are 'unclosed sales'. Closing branch comes from the POS Opening Entry.", x: 0, y: 21, w: 20, h: 2}
+      - {text: "<p><b>Payments and cash-up.</b> Where the money came in and whether cash-up balances. For finance and branch managers. Default period: last 30 days; Order type skips cash-up, Payment mode skips billed totals.</p>", x: 0, y: 0, w: 20, h: 2}
+      - {chart: db09_tender, x: 0, y: 3, w: 4, h: 3}
+      - {chart: db09_collected, x: 4, y: 3, w: 4, h: 3}
+      - {chart: db09_billed, x: 8, y: 3, w: 4, h: 3}
+      - {chart: db09_unclosed, x: 12, y: 3, w: 4, h: 3}
+      - {chart: db09_unclosed_n, x: 16, y: 3, w: 4, h: 3}
+      - {text: "<p>Not yet closed = paid bills not yet included in a POS closing. Close the shift to move them into cash-up.</p>", x: 0, y: 6, w: 20, h: 1}
+      - {text: "<p><b>Not enough data yet:</b> every cash-up on this site balances exactly, so no differences show. Cash-up covers bills already closed into a shift; paid bills not yet closed show above as Not yet closed.</p>", x: 0, y: 7, w: 20, h: 2}
+      - {chart: db09_exp_counted, x: 0, y: 9, w: 12, h: 9}
+      - {chart: db09_diff, x: 12, y: 9, w: 4, h: 3}
+      - {chart: db09_variance, x: 16, y: 9, w: 4, h: 3}
+      - {chart: db09_diff_shifts, x: 12, y: 12, w: 8, h: 6}
+      - {text: "<p>Expected = cash the system says should be in the drawer. Counted = what the cashier counted at close.</p>", x: 0, y: 18, w: 12, h: 2}
+      - {text: "<p><b>No cash differences in this period.</b> Every shift closed with counted cash equal to expected.</p>", x: 12, y: 18, w: 8, h: 2}
+      - {chart: db09_mode, x: 0, y: 20, w: 6, h: 7}
+      - {chart: db09_mode_ot, x: 6, y: 20, w: 14, h: 7}
+      - {chart: db09_cashier, x: 0, y: 27, w: 20, h: 7}

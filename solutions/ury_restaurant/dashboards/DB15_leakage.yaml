@@ -81,59 +81,68 @@ queries:
 
 
 charts:
-  # S1 KPIs
-  - {id: db15_kpi, title: "Cancelled Bills and Value Lost", query: fact_cancellations, type: Number,
-     y: [{column: name, agg: count, as: Cancelled Bills}, {column: grand_total, agg: sum, as: Value Lost, format: currency}]}
-  - {id: db15_base, title: "Net Sales Base and Zero Bills", query: fact_invoices, type: Number,
-     y: [{column: net_total, agg: sum, as: Net Sales, format: currency}, {column: is_zero_bill, agg: sum, as: Zero Bills}]}
-  - {id: db15_disc, title: "Discounts Given (T3)", query: fact_invoices, type: Number,
-     y: [{column: discount_amount, agg: sum, as: Discount Amount, format: currency}, {column: has_discount, agg: sum, as: Discounted Bills}]}
+  # S1 KPIs (one tile per chart; currency rounded to whole rupees)
+  - {id: db15_cnt, title: "Cancelled bills", query: fact_cancellations, type: Number,
+     y: [{column: name, agg: count, as: Cancelled bills}]}
+  - {id: db15_val, title: "Cancelled value (₹)", query: fact_cancellations, type: Number,
+     y: [{expr: "(sum(grand_total)).round(0)", as: "Cancelled value (₹)", format: currency}]}
+  - {id: db15_net, title: "Net sales (₹)", query: fact_invoices, type: Number,
+     y: [{expr: "(sum(net_total)).round(0)", as: "Net sales (₹)", format: currency}]}
+  - {id: db15_zero, title: "Zero-value bills", query: fact_invoices, type: Number,
+     y: [{column: is_zero_bill, agg: sum, as: Zero-value bills}]}
+  - {id: db15_disc, title: "Discounts given (₹)", query: fact_invoices, type: Number,
+     y: [{expr: "(sum(discount_amount)).round(0)", as: "Discounts given (₹)", format: currency}]}
   # S2 Why and where
-  - {id: db15_reason, title: "Cancellations by Reason", query: fact_cancellations, type: Row, limit: 15,
-     x: cancel_reason, y: [{column: name, agg: count, as: Cancelled Bills}, {column: grand_total, agg: sum, as: Value Lost, format: currency}],
-     order: [{by: Value Lost, dir: desc}]}
-  - {id: db15_ot, title: "Cancellations by Order Type", query: fact_cancellations, type: Donut, limit: 10,
-     x: order_type, y: [{column: name, agg: count, as: Cancelled Bills}], order: [{by: Cancelled Bills, dir: desc}]}
-  - {id: db15_trend, title: "Cancellations per Week", query: fact_cancellations, type: Bar, limit: 366,
-     x: {column: posting_date, granularity: week}, y: [{column: name, agg: count, as: Cancelled Bills}]}
+  - {id: db15_reason, title: "Cancelled value by reason (₹)", query: fact_cancellations, type: Row, limit: 15,
+     x: cancel_reason, y: [{expr: "(sum(grand_total)).round(0)", as: "Cancelled value (₹)", format: currency}],
+     order: [{by: "Cancelled value (₹)", dir: desc}]}
+  - {id: db15_ot, title: "Cancelled bills by order type (count)", query: fact_cancellations, type: Row, limit: 10,
+     x: order_type, y: [{column: name, agg: count, as: Cancelled bills}], order: [{by: Cancelled bills, dir: desc}]}
+  - {id: db15_trend, title: "Cancelled bills per week (count)", query: fact_cancellations, type: Bar, limit: 366,
+     x: {column: posting_date, granularity: week}, y: [{column: name, agg: count, as: Cancelled bills}]}
   # S3 Who
-  - {id: db15_waiter, title: "Cancelled Value by Order Owner", query: fact_cancellations, type: Row, limit: 15,
-     x: waiter, y: [{column: grand_total, agg: sum, as: Value Lost, format: currency}], order: [{by: Value Lost, dir: desc}]}
-  - {id: db15_disc_cashier, title: "Discount by Cashier (T3)", query: fact_invoices, type: Row, limit: 15,
-     filters: [{column: has_discount, op: "=", value: 1}],
-     x: cashier, y: [{column: discount_amount, agg: sum, as: Discount Amount, format: currency}], order: [{by: Discount Amount, dir: desc}]}
+  - {id: db15_waiter, title: "Cancelled value by order taker (₹)", query: fact_cancellations, type: Row, limit: 15,
+     x: waiter, y: [{expr: "(sum(grand_total)).round(0)", as: "Cancelled value (₹)", format: currency}],
+     order: [{by: "Cancelled value (₹)", dir: desc}]}
   # S4 Kitchen side
-  - {id: db15_stage, title: "Kitchen Cancellations by Stage", query: fact_kot_exec, type: Bar, limit: 10,
+  - {id: db15_stage, title: "Kitchen cancellations by stage (count)", query: fact_kot_exec, type: Bar, limit: 10,
      filters: [{column: is_cancelled, op: "=", value: 1}],
-     x: state, y: [{column: name, agg: count, as: Cancelled Tickets}]}
-  - {id: db15_modified, title: "Modified Orders (KOT)", query: fact_kot_headers, type: Number,
+     x: state, y: [{column: name, agg: count, as: Cancelled tickets}]}
+  - {id: db15_modified, title: "Modified KOTs", query: fact_kot_headers, type: Number,
      filters: [{column: type, op: "=", value: "Order Modified"}],
      y: [{column: name, agg: count, as: Modified KOTs}]}
-  - {id: db15_voids, title: "Voided Kitchen Quantity", query: fact_kot_lines, type: Number,
-     y: [{column: cancelled_qty_num, agg: sum, as: Voided Qty}]}
+  - {id: db15_voids, title: "Voided kitchen quantity (count)", query: fact_kot_lines, type: Number,
+     y: [{column: cancelled_qty_num, agg: sum, as: Voided quantity}]}
 dashboards:
   - id: leakage
     title: "Leakage"
     filters:
       - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"},
+         layout: {x: 0, y: 2, w: 5, h: 1},
          applies_to: {fact_cancellations: posting_date, fact_invoices: posting_date, fact_kot_exec: exec_date, fact_kot_headers: date, fact_kot_lines: date}}
       - {id: f_branch, label: Branch, type: string, icon: building-2,
+         layout: {x: 5, y: 2, w: 5, h: 1},
          applies_to: {fact_cancellations: branch, fact_invoices: branch, fact_kot_exec: branch, fact_kot_headers: branch, fact_kot_lines: branch}}
       - {id: f_waiter, label: Waiter, type: string, icon: user,
+         layout: {x: 10, y: 2, w: 5, h: 1},
          applies_to: {fact_cancellations: waiter, fact_invoices: waiter}}
-      - {id: f_order_type, label: Order Type, type: string, icon: utensils,
+      - {id: f_order_type, label: Order type, type: string, icon: utensils,
+         layout: {x: 15, y: 2, w: 5, h: 1},
          applies_to: {fact_cancellations: order_type, fact_invoices: order_type}}
     items:
-      - {chart: db15_kpi, x: 0, y: 1, w: 8, h: 3}
-      - {chart: db15_base, x: 8, y: 1, w: 6, h: 3}
-      - {chart: db15_disc, x: 14, y: 1, w: 6, h: 3}
-      - {chart: db15_reason, x: 0, y: 4, w: 10, h: 8}
-      - {chart: db15_ot, x: 10, y: 4, w: 5, h: 8}
-      - {chart: db15_trend, x: 15, y: 4, w: 5, h: 8}
-      - {chart: db15_waiter, x: 0, y: 12, w: 10, h: 7}
-      - {chart: db15_disc_cashier, x: 10, y: 12, w: 10, h: 7}
-      - {chart: db15_stage, x: 0, y: 19, w: 7, h: 7}
-      - {chart: db15_modified, x: 7, y: 19, w: 6, h: 3}
-      - {chart: db15_voids, x: 13, y: 19, w: 7, h: 3}
-      - {text: "<p><b>Waiter = order owner</b>, not necessarily the canceller (not stored, R14). <b>T3</b> discounts: only 4 bills, 31.89 total. <b>T4</b> SAL-018 returns: none recorded. Cancel reason is free text.</p>", x: 7, y: 22, w: 13, h: 4}
+      - {text: "<p><b>Leakage.</b> How much was cancelled, discounted or billed at zero, why and by whom. For owner and finance. Default: last 90 days; aim for cancellations under 2% of net sales.</p>", x: 0, y: 0, w: 20, h: 2}
+      - {chart: db15_cnt, x: 0, y: 3, w: 5, h: 3}
+      - {chart: db15_val, x: 5, y: 3, w: 5, h: 3}
+      - {chart: db15_net, x: 10, y: 3, w: 5, h: 3}
+      - {chart: db15_zero, x: 15, y: 3, w: 5, h: 3}
+      - {chart: db15_reason, x: 0, y: 6, w: 12, h: 8}
+      - {chart: db15_ot, x: 12, y: 6, w: 8, h: 8}
+      - {chart: db15_trend, x: 0, y: 14, w: 10, h: 7}
+      - {chart: db15_waiter, x: 10, y: 14, w: 10, h: 7}
+      - {text: "<p>The person shown took the order, not necessarily the one who cancelled. Cancelled value includes duplicates and re-billed orders, so it is not all lost revenue.</p>", x: 10, y: 21, w: 10, h: 2}
+      - {chart: db15_disc, x: 0, y: 21, w: 5, h: 3}
+      - {text: "<p><b>Not enough data yet:</b> discounts by cashier. Shows once discounted bills are common enough to compare.</p>", x: 5, y: 21, w: 5, h: 3}
+      - {chart: db15_stage, x: 0, y: 24, w: 10, h: 7}
+      - {chart: db15_modified, x: 10, y: 24, w: 5, h: 3}
+      - {chart: db15_voids, x: 15, y: 24, w: 5, h: 3}
 desk: {workspace: "URY", label: "Leakage"}

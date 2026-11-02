@@ -118,6 +118,13 @@ Severity: E error, W warning (fails only with `--strict`), I info. "(cat)" = nee
 | L26 | W | spec has a `share` key: it is accepted but nothing applies it (finsights never grants access) | grant access in the Insights UI or via `insights.api.workbooks.update_share_permissions` |
 | L27 | W | chart type `Map`, `Bubble` or `Sankey`: config is derived from the Insights type definitions, unverified on 3.15.1 | open the rendered chart and check it |
 | L28 | W (cat) | a join `columns` entry has the same name as a base-table column, so the output name collides | remove it from that join's `columns` (select cannot rename), or build a `source_query` on the joined table with a mutate alias |
+| L29 | E | `text` item has a bare `<` `>` `&` outside an HTML tag or entity (Frappe stores it escaped, so verify reports V01 drift forever) | use words or the explicit entity |
+| L30 | E | expression calls an unknown function | use a function the Insights backend exposes |
+| L31 | W | dashboard `text` item contains markdown (`**`, backtick, leading `#`) | text is HTML; use `<b>`, `<i>`, `<ul>`, `<li>` or plain words |
+| L32 | W | dashboard `text` item shows a metric id (`SAL-012`), tier code (`T1`..`T4`) or roadmap id (`R1`..`R15`) | move codes to YAML comments |
+| L33 | W | ratio measure (`sum(a)/sum(b)` expr, or name ending `pct`/`rate`/`ratio`) without `format: percent` | set `format: percent` |
+| L34 | W | Donut whose y measure name suggests it can be negative (`net`, `difference`, `variance`, `diff`, `delta`) | use a Bar chart |
+| L35 | W | chart y (not Number or Table) mixes a currency measure and a count measure | split into two charts |
 Findings are JSON-pointer addressed (`/charts/0/y/1`); `--json` gives `{findings:[{rule,severity,path,message,fix_hint}], ok}`; `--only L06,L08` filters. Compile also emits L21 info lines on stderr. `compile`, `plan`, `apply`, `verify`, `ship` run lint first (with the discovered catalog) and stop with exit 1 on errors (warnings do not stop them).
 
 **Verify rules** (`finsights verify`): V01 object missing on site or drifted from the compile; V02 chart's query returned fewer than `--min-rows` rows; V03 query run failed; V04 dashboard `linked_charts` != chart items; V05 dashboard filter links: error when the target chart is not an item on the dashboard, the value is not `` `query`.`column` ``, the query is not the chart's query, or the column is not in the query's result; warn when a filter has no links.
