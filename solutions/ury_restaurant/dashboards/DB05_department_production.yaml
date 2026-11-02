@@ -93,11 +93,11 @@ dashboards:
   - id: department_production
     title: "Kitchen stations and production"
     filters:
-      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"}, layout: {x: 0, y: 2, w: 5, h: 1},
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"}, layout: {x: 0, y: 2, w: 7, h: 1},
          applies_to: {fact_sales_lines_enriched: posting_date, fact_kot_headers: date, fact_kot_lines: date, fact_sales_plan_items: plan_date}}
-      - {id: f_branch, label: Branch, type: string, icon: building-2, layout: {x: 5, y: 2, w: 5, h: 1},
+      - {id: f_branch, label: Branch, type: string, icon: building-2, layout: {x: 7, y: 2, w: 7, h: 1},
          applies_to: {fact_sales_lines_enriched: branch, fact_kot_headers: branch, fact_kot_lines: branch, fact_sales_plan_items: branch}}
-      - {id: f_department, label: Department, type: string, icon: chef-hat, layout: {x: 10, y: 2, w: 5, h: 1},
+      - {id: f_department, label: Department, type: string, icon: chef-hat, layout: {x: 14, y: 2, w: 6, h: 1},
          applies_to: {fact_sales_lines_enriched: department, fact_kot_headers: production, fact_kot_lines: production, fact_sales_plan_items: department}}
     items:
       - {text: "<p><b>Kitchen stations and production.</b> How much each station made, whether it met the sales plan, and which department the sales belong to. For kitchen head. Default period: last 30 days; every filter applies to every chart.</p>", x: 0, y: 0, w: 20, h: 2}

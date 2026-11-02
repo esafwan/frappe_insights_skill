@@ -35,10 +35,7 @@ queries:
     select: [name, branch, restaurant, restaurant_room, no_of_seats, minimum_seating, is_take_away, occupied, latest_invoice_time]
 
 charts:
-  # S1 Floor (T1). KPI row: five tiles w:4, one measure each (covers tile carries covers + spend per cover)
-  - {id: db07_bills, title: "Dine-in bills (count)", query: fact_table_sessions, type: Number,
-     filters: [{column: is_take_away, op: "=", value: 0}],
-     y: [{column: name, agg: count, as: "Dine-in bills"}]}
+  # S1 Floor (T1). KPI row: five tiles w:4, one measure each; occupied-now leads the row
   - {id: db07_kpi, title: "Net sales (₹)", query: fact_table_sessions, type: Number,
      filters: [{column: is_take_away, op: "=", value: 0}],
      y: [{expr: "sum(net_total).round(0)", as: "Net sales", format: currency}]}
@@ -46,9 +43,12 @@ charts:
      filters: [{column: is_take_away, op: "=", value: 0}],
      y: [{column: occupied, agg: sum, as: "Occupied"}]}
   # S3 Covers (T2): Paid only, dine-in, pax > 0
-  - {id: db07_covers, title: "Covers and spend per cover (₹)", query: fact_invoices, type: Number,
+  - {id: db07_covers, title: "Covers (count)", query: fact_invoices, type: Number,
      filters: [{column: order_type, op: "=", value: "Dine In"}, {column: population, op: "=", value: "Paid"}, {column: pax, op: ">", value: 0}],
-     y: [{column: pax, agg: sum, as: "Covers"}, {expr: "(sum(net_total) / sum(pax)).round(0)", as: "Spend per cover", format: currency}]}
+     y: [{column: pax, agg: sum, as: "Covers"}]}
+  - {id: db07_spend_cover, title: "Spend per cover (₹)", query: fact_invoices, type: Number,
+     filters: [{column: order_type, op: "=", value: "Dine In"}, {column: population, op: "=", value: "Paid"}, {column: pax, op: ">", value: 0}],
+     y: [{expr: "(sum(net_total) / sum(pax)).round(0)", as: "Spend per cover", format: currency}]}
   # S4 Dwell (T2 estimate): valid dwell only (dwell_valid = 1); db07_dq (Valid/All bills) dropped, footnote replaces it
   - {id: db07_dwell, title: "Avg time at table (min) (estimate)", query: fact_table_sessions, type: Number,
      filters: [{column: dwell_valid, op: "=", value: 1}],
@@ -70,16 +70,15 @@ dashboards:
   - id: db07_table_floor
     title: "Tables and floor"
     filters:
-      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"}, layout: {x: 0, y: 2, w: 5, h: 1}, applies_to: {fact_table_sessions: posting_date, fact_invoices: posting_date}}
-      - {id: f_branch, label: Branch, type: string, icon: store, layout: {x: 5, y: 2, w: 5, h: 1}, applies_to: {fact_table_sessions: branch, dim_table: branch, fact_invoices: branch}}
-      - {id: f_waiter, label: Waiter, type: string, icon: user, layout: {x: 10, y: 2, w: 5, h: 1}, applies_to: {fact_table_sessions: waiter, fact_invoices: waiter}}
-      - {id: f_population, label: Population, type: string, icon: users, layout: {x: 15, y: 2, w: 5, h: 1}, applies_to: {fact_table_sessions: population, fact_invoices: population}}
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"}, layout: {x: 0, y: 2, w: 7, h: 1}, applies_to: {fact_table_sessions: posting_date, fact_invoices: posting_date}}
+      - {id: f_branch, label: Branch, type: string, icon: store, layout: {x: 7, y: 2, w: 7, h: 1}, applies_to: {fact_table_sessions: branch, dim_table: branch, fact_invoices: branch}}
+      - {id: f_waiter, label: Waiter, type: string, icon: user, layout: {x: 14, y: 2, w: 6, h: 1}, applies_to: {fact_table_sessions: waiter, fact_invoices: waiter}}
     items:
       - {text: "<p><b>Tables and floor.</b> Which rooms and tables earn, how many covers you serve and how long guests stay. For floor manager and branch manager. Default period: last 30 days; every filter applies to every chart.</p>", x: 0, y: 0, w: 20, h: 2}
-      - {chart: db07_bills, x: 0, y: 3, w: 4, h: 3}
+      - {chart: db07_occupied, x: 0, y: 3, w: 4, h: 3}
       - {chart: db07_kpi, x: 4, y: 3, w: 4, h: 3}
-      - {chart: db07_occupied, x: 8, y: 3, w: 4, h: 3}
-      - {chart: db07_covers, x: 12, y: 3, w: 4, h: 3}
+      - {chart: db07_covers, x: 8, y: 3, w: 4, h: 3}
+      - {chart: db07_spend_cover, x: 12, y: 3, w: 4, h: 3}
       - {chart: db07_dwell, x: 16, y: 3, w: 4, h: 3}
       - {text: "<p>Avg time at table is based on dine-in bills with a recorded time (about half).</p>", x: 0, y: 6, w: 20, h: 1}
       - {chart: db07_room, x: 0, y: 7, w: 8, h: 9}

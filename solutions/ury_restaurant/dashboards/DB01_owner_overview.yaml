@@ -118,10 +118,15 @@ queries:
 
 charts:
   # S1 Headline (T1). No `date` on the KPI: the card shows the TOTAL of the filtered rows (dashboard Date filter applies).
-  - {id: db01_sales_kpi, title: "Sales headline", query: fact_invoices, type: Number,
-     y: [{expr: "(sum(net_total)).round(0)", as: Net sales (₹), format: currency}, {column: name, agg: count, as: Bills}, {expr: "(sum(net_total) / count(name)).round(0)", as: Average bill (₹), format: currency}]}
+  # One Number chart per tile: Insights renders a multi-measure Number at a fixed narrow tile width.
+  - {id: db01_net_sales_kpi, title: "Net sales (₹)", query: fact_invoices, type: Number,
+     y: [{expr: "(sum(net_total)).round(0)", as: Net sales (₹), format: currency}]}
+  - {id: db01_bills_kpi, title: "Bills", query: fact_invoices, type: Number,
+     y: [{column: name, agg: count, as: Bills}]}
+  - {id: db01_avg_bill_kpi, title: "Average bill (₹)", query: fact_invoices, type: Number,
+     y: [{expr: "(sum(net_total) / count(name)).round(0)", as: Average bill (₹), format: currency}]}
   # SAL-007: with date+comparison the card shows the LATEST month and % change vs the previous month.
-  - {id: db01_mtd_kpi, title: "Net sales month to date (vs last month)", query: fact_invoices, type: Number, comparison: true,
+  - {id: db01_mtd_kpi, title: "Net sales month to date (₹)", query: fact_invoices, type: Number, comparison: true,
      date: {column: posting_date, granularity: month},
      y: [{expr: "(sum(net_total)).round(0)", as: Net sales MTD (₹), format: currency}]}
   # S2 Trend and mix (T1)
@@ -143,8 +148,10 @@ charts:
   - {id: db01_branch, title: "Net sales by branch (needs 2+ branches)", query: fact_invoices, type: Row, limit: 10,
      x: branch, y: [{expr: "(sum(net_total)).round(0)", as: Net sales (₹)}], order: [{by: Net sales (₹), dir: desc}]}
   # S4b Margin (T2 estimate, seeded Daily P and L; recipe cost covers ~6-8% of revenue, MAR-005)
-  - {id: db01_margin, title: "Gross profit and margin (estimate)", query: fact_daily_pnl, type: Number,
-     y: [{expr: "(sum(gross_profit)).round(0)", as: Gross profit (estimate) (₹), format: currency}, {expr: "sum(gross_profit) / sum(net_sales)", as: Gross margin (estimate) (%), format: percent}]}
+  - {id: db01_gross_profit, title: "Gross profit (₹, est.)", query: fact_daily_pnl, type: Number,
+     y: [{expr: "(sum(gross_profit)).round(0)", as: "Gross profit (₹, est.)", format: currency}]}
+  - {id: db01_gross_margin, title: "Gross margin (%, est.)", query: fact_daily_pnl, type: Number,
+     y: [{expr: "sum(gross_profit) / sum(net_sales)", as: "Gross margin (%, est.)", format: percent}]}
   # S5 Control panel
   - {id: db01_cancels, title: "Cancelled value (₹)", query: fact_cancellations, type: Number,
      y: [{expr: "(sum(grand_total)).round(0)", as: Cancelled value (₹), format: currency}]}
@@ -162,24 +169,27 @@ dashboards:
   - id: owner_overview
     title: "Owner overview"
     filters:
-      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"}, layout: {x: 0, y: 2, w: 5, h: 1},
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"}, layout: {x: 0, y: 2, w: 7, h: 1},
          applies_to: {fact_invoices: posting_date, fact_sales_lines_enriched: posting_date, fact_cancellations: posting_date, fact_kot_headers: date, fact_sales_plan_items: plan_date, fact_stock_correction: posting_date, fact_yield_checks: checked_on, fact_daily_pnl: date}}
-      - {id: f_branch, label: Branch, type: string, icon: store, layout: {x: 5, y: 2, w: 5, h: 1},
+      - {id: f_branch, label: Branch, type: string, icon: store, layout: {x: 7, y: 2, w: 7, h: 1},
          applies_to: {fact_invoices: branch, fact_sales_lines_enriched: branch, fact_cancellations: branch, fact_kot_headers: branch, fact_sales_plan_items: branch, fact_stock_correction: branch, fact_yield_checks: branch, fact_daily_pnl: branch}}
-      - {id: f_population, label: Population, type: string, icon: users, layout: {x: 10, y: 2, w: 5, h: 1},
+      - {id: f_population, label: Population, type: string, icon: users, layout: {x: 14, y: 2, w: 6, h: 1},
          applies_to: {fact_invoices: population, fact_sales_lines_enriched: population}}
     items:
       - {text: "<p><b>Owner overview.</b> Is revenue growing, where does it come from, and is anything leaking? For the owner. Default period: last 90 days; every filter applies to every chart.</p>", x: 0, y: 0, w: 20, h: 2}
-      - {chart: db01_sales_kpi, x: 0, y: 3, w: 15, h: 3}
+      - {chart: db01_net_sales_kpi, x: 0, y: 3, w: 5, h: 3}
+      - {chart: db01_bills_kpi, x: 5, y: 3, w: 5, h: 3}
+      - {chart: db01_avg_bill_kpi, x: 10, y: 3, w: 5, h: 3}
       - {chart: db01_mtd_kpi, x: 15, y: 3, w: 5, h: 3}
       - {chart: db01_daily_sales, x: 0, y: 6, w: 12, h: 7}
       - {chart: db01_channel, x: 12, y: 6, w: 8, h: 7}
       - {chart: db01_category, x: 0, y: 13, w: 7, h: 9}
       - {chart: db01_department, x: 7, y: 13, w: 7, h: 9}
       - {chart: db01_top_items, x: 14, y: 13, w: 6, h: 9}
-      - {text: "<p><b>Fix in setup:</b> sales with no department come from items with no production department; set it in Item Production Configuration.</p>", x: 7, y: 22, w: 7, h: 2}
+      - {text: "<p><b>Fix in setup:</b> sales with no department come from items with no production department; set it in Item Production Configuration.</p>", x: 7, y: 22, w: 13, h: 2}
       - {chart: db01_branch, x: 0, y: 24, w: 8, h: 4}
-      - {chart: db01_margin, x: 8, y: 24, w: 12, h: 4}
+      - {chart: db01_gross_profit, x: 8, y: 24, w: 5, h: 3}
+      - {chart: db01_gross_margin, x: 13, y: 24, w: 5, h: 3}
       - {text: "<p><b>Control panel</b> - leakage, kitchen, plan and stock for the period</p>", x: 0, y: 28, w: 20, h: 1}
       - {chart: db01_cancels, x: 0, y: 29, w: 4, h: 3}
       - {chart: db01_sla, x: 4, y: 29, w: 4, h: 3}

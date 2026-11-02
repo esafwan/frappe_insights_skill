@@ -31,11 +31,15 @@ queries:
 
 charts:
   # S1 KPIs (SAL-001, MNU-002). No date on a Number chart: shows the TOTAL for the filtered rows.
-  - {id: db04_kpi, title: "Menu KPIs", query: fact_sales_lines_enriched, type: Number,
-     y: [{expr: "sum(net_amount).round(0)", as: "Net sales (₹)", format: currency},
-         {expr: "sum(qty).round(0)", as: "Items sold"},
-         {column: item_code, agg: count_distinct, as: "Dishes sold (distinct)"},
-         {expr: "(sum(net_amount) / sum(qty)).round(0)", as: "Avg price per item (₹)", format: currency}]}
+  # One Number chart per tile: Insights renders a multi-measure Number at a fixed narrow tile width.
+  - {id: db04_net_sales_kpi, title: "Net sales (₹)", query: fact_sales_lines_enriched, type: Number,
+     y: [{expr: "sum(net_amount).round(0)", as: "Net sales (₹)", format: currency}]}
+  - {id: db04_items_sold_kpi, title: "Items sold", query: fact_sales_lines_enriched, type: Number,
+     y: [{expr: "sum(qty).round(0)", as: "Items sold"}]}
+  - {id: db04_dishes_kpi, title: "Dishes sold (distinct)", query: fact_sales_lines_enriched, type: Number,
+     y: [{column: item_code, agg: count_distinct, as: "Dishes sold (distinct)"}]}
+  - {id: db04_avg_price_kpi, title: "Avg price per item (₹)", query: fact_sales_lines_enriched, type: Number,
+     y: [{expr: "(sum(net_amount) / sum(qty)).round(0)", as: "Avg price per item (₹)", format: currency}]}
   # S2 Category (MNU-005, MNU-006, DQ-003, MNU-010). Unassigned and Non-menu are excluded from the ranking.
   - {id: db04_cat_rev, title: "Net sales by menu category (₹)", query: fact_sales_lines_enriched, type: Row, limit: 15,
      filters: [{column: menu_category, op: "!=", value: Unassigned}, {column: menu_category, op: "!=", value: Non-menu}],
@@ -80,7 +84,10 @@ dashboards:
       # Department filter dropped: UX standard allows 4 visible filters max (Date, Branch, then two).
     items:
       - {text: "<p><b>Menu and category.</b> Which dishes and categories earn, and which to promote, reprice or drop. For owner, branch manager and kitchen head. Default period: last 90 days; every filter applies to every chart.</p>", x: 0, y: 0, w: 20, h: 2}
-      - {chart: db04_kpi, x: 0, y: 3, w: 20, h: 3}
+      - {chart: db04_net_sales_kpi, x: 0, y: 3, w: 5, h: 3}
+      - {chart: db04_items_sold_kpi, x: 5, y: 3, w: 5, h: 3}
+      - {chart: db04_dishes_kpi, x: 10, y: 3, w: 5, h: 3}
+      - {chart: db04_avg_price_kpi, x: 15, y: 3, w: 5, h: 3}
       - {text: "<p><b>Categories</b> - which menu categories earn the most</p>", x: 0, y: 6, w: 20, h: 1}
       - {chart: db04_cat_rev, x: 0, y: 7, w: 12, h: 9}
       - {chart: db04_unassigned, x: 12, y: 7, w: 8, h: 3}

@@ -104,9 +104,9 @@ dashboards:
   - id: production_planning
     title: "Production planning"
     filters:
-      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"}, layout: {x: 0, y: 2, w: 5, h: 1}, applies_to: {fact_sales_plan_items: plan_date, fact_cancellations: posting_date}}
-      - {id: f_branch, label: Branch, type: string, icon: store, layout: {x: 5, y: 2, w: 5, h: 1}, applies_to: {fact_sales_plan_items: branch, fact_cancellations: branch}}
-      - {id: f_department, label: Department, type: string, icon: layers, layout: {x: 10, y: 2, w: 5, h: 1}, applies_to: {fact_sales_plan_items: department}}
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"}, layout: {x: 0, y: 2, w: 7, h: 1}, applies_to: {fact_sales_plan_items: plan_date, fact_cancellations: posting_date}}
+      - {id: f_branch, label: Branch, type: string, icon: store, layout: {x: 7, y: 2, w: 7, h: 1}, applies_to: {fact_sales_plan_items: branch, fact_cancellations: branch}}
+      - {id: f_department, label: Department, type: string, icon: layers, layout: {x: 14, y: 2, w: 6, h: 1}, applies_to: {fact_sales_plan_items: department}}
     items:
       - {text: "<p><b>Production planning.</b> Did each station make what the sales plan asked for, and which dishes fell short? For kitchen head. Default: last 90 days; good is near 100% with few out-of-stock cancellations.</p>", x: 0, y: 0, w: 20, h: 2}
       - {chart: db13_kpi, x: 0, y: 3, w: 15, h: 3}

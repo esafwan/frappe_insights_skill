@@ -89,20 +89,20 @@ queries:
 
 charts:
   # ---- Readiness percentages (UX_STANDARD 3.3 / CHANGE_LIST DB14 #3, #5). Codes for reference: DQ-006, DQ-007, DQ-005, DQ-003, DQ-002.
-  - {id: db14_emp_link, title: "Bills linked to a staff record (%)", query: fact_invoices, type: Number,
-     y: [{expr: "count_if(custom_waiter_employee.notnull()) / count(name)", as: "Bills linked to a staff record (%)", format: percent}]}
-  - {id: db14_recipe, title: "Sold dishes with recipe cost (%)", query: dim_item, type: Number,
+  - {id: db14_emp_link, title: "Bills with staff (%)", query: fact_invoices, type: Number,
+     y: [{expr: "count_if(custom_waiter_employee.notnull()) / count(name)", as: "Bills with staff (%)", format: percent}]}
+  - {id: db14_recipe, title: "Dishes costed (%)", query: dim_item, type: Number,
      filters: [{column: is_sold, op: "=", value: 1}],
-     y: [{expr: "sum(has_recipe_cost) / count(item_code)", as: "Sold dishes with recipe cost (%)", format: percent}]}
-  - {id: db14_dwell, title: "Dine-in bills with table time (%)", query: fact_table_sessions, type: Number,
-     y: [{expr: "sum(dwell_valid) / count(name)", as: "Dine-in bills with table time (%)", format: percent}]}
-  - {id: db14_station, title: "Dishes with a station (%)", query: dim_item, type: Number,
+     y: [{expr: "sum(has_recipe_cost) / count(item_code)", as: "Dishes costed (%)", format: percent}]}
+  - {id: db14_dwell, title: "Bills with timing (%)", query: fact_table_sessions, type: Number,
+     y: [{expr: "sum(dwell_valid) / count(name)", as: "Bills with timing (%)", format: percent}]}
+  - {id: db14_station, title: "Station mapped (%)", query: dim_item, type: Number,
      filters: [{column: branch, op: is_set}],
-     y: [{expr: "count_if(config_unit != 'Unmapped') / count(item_code)", as: "Dishes with a station (%)", format: percent}]}
-  - {id: db14_dept_share, title: "Sales with a department (%)", query: fact_sales_lines_enriched, type: Number,
-     y: [{expr: "sum(if_else(department != 'Unmapped', net_amount, 0)) / sum(net_amount)", as: "Sales with a department (%)", format: percent}]}
-  - {id: db14_cat_share, title: "Sales with a menu category (%)", query: fact_sales_lines_enriched, type: Number,
-     y: [{expr: "sum(if_else(menu_category != 'Unassigned', net_amount, 0)) / sum(net_amount)", as: "Sales with a menu category (%)", format: percent}]}
+     y: [{expr: "count_if(config_unit != 'Unmapped') / count(item_code)", as: "Station mapped (%)", format: percent}]}
+  - {id: db14_dept_share, title: "Sales with dept (%)", query: fact_sales_lines_enriched, type: Number,
+     y: [{expr: "sum(if_else(department != 'Unmapped', net_amount, 0)) / sum(net_amount)", as: "Sales with dept (%)", format: percent}]}
+  - {id: db14_cat_share, title: "Sales categorised (%)", query: fact_sales_lines_enriched, type: Number,
+     y: [{expr: "sum(if_else(menu_category != 'Unassigned', net_amount, 0)) / sum(net_amount)", as: "Sales categorised (%)", format: percent}]}
   # ---- Not recorded yet: zero here means not captured (DQ-008, DQ-009, DQ-010)
   - {id: db14_actor, title: "Kitchen tickets with a named cook", query: fact_kot_exec, type: Number,
      filters: [{column: started_by, op: "!=", value: Administrator}, {column: started_by, op: is_set}],
@@ -137,10 +137,10 @@ dashboards:
     title: "Data readiness"
     filters:
       # No date default on purpose: readiness counts are all-history (banner says so).
-      - {id: f_date, label: Date, type: date, icon: calendar, layout: {x: 0, y: 2, w: 5, h: 1}, applies_to: {fact_invoices: posting_date, fact_sales_lines_enriched: posting_date, fact_table_sessions: posting_date, fact_kot_exec: exec_date, fact_yield_checks: checked_on, fact_wastage_lines: posting_date}}
-      - {id: f_branch, label: Branch, type: string, icon: store, layout: {x: 5, y: 2, w: 5, h: 1}, applies_to: {fact_invoices: branch, fact_sales_lines_enriched: branch, fact_table_sessions: branch, fact_kot_exec: branch, fact_yield_checks: branch, fact_wastage_lines: branch}}
+      - {id: f_date, label: Date, type: date, icon: calendar, layout: {x: 0, y: 2, w: 10, h: 1}, applies_to: {fact_invoices: posting_date, fact_sales_lines_enriched: posting_date, fact_table_sessions: posting_date, fact_kot_exec: exec_date, fact_yield_checks: checked_on, fact_wastage_lines: posting_date}}
+      - {id: f_branch, label: Branch, type: string, icon: store, layout: {x: 10, y: 2, w: 10, h: 1}, applies_to: {fact_invoices: branch, fact_sales_lines_enriched: branch, fact_table_sessions: branch, fact_kot_exec: branch, fact_yield_checks: branch, fact_wastage_lines: branch}}
     items:
-      - text: "<p><b>Data readiness.</b> Which numbers you can trust today and what to start recording next. For the owner, monthly. Period: all history unless you pick dates; every filter applies to every tile.</p>"
+      - text: "<p><b>Data readiness.</b> Which numbers you can trust today and what to start recording next; the order below is a suggestion. For the owner, monthly. Period: all history unless you pick dates.</p>"
         x: 0
         y: 0
         w: 20
@@ -150,32 +150,37 @@ dashboards:
       - {chart: db14_station, x: 8, y: 3, w: 4, h: 3}
       - {chart: db14_dept_share, x: 12, y: 3, w: 4, h: 3}
       - {chart: db14_cat_share, x: 16, y: 3, w: 4, h: 3}
-      - text: "<p><b>Start recording these, in this order</b></p><ul><li><b>Wastage</b>: log spoiled and returned food daily. Unlocks waste cost and true food cost.</li><li><b>Recipe costs</b>: few sold dishes have a costed recipe. Unlocks dish margin.</li><li><b>Staff link</b>: link each POS user to an Employee. Unlocks sales and speed per person.</li><li><b>Cook on kitchen tickets</b>: unlocks prep time per cook and station.</li><li><b>Station for every dish</b>: unlocks station sales and planning.</li></ul>"
+      - text: "<p>Dishes costed: sold dishes with a recipe cost. Bills with timing: dine-in bills with table time. Station mapped: dishes with a kitchen station. Sales with dept and Sales categorised: share of sales amount.</p>"
         x: 0
         y: 6
         w: 20
-        h: 5
+        h: 3
+      - text: "<p><b>Start recording these</b> (a suggested order)</p><ul><li><b>Wastage:</b> log spoiled and returned food daily. Unlocks true food cost.</li><li><b>Recipe costs:</b> add a costed recipe to each sold dish. Unlocks dish margin.</li><li><b>Staff link:</b> link each POS user to an Employee. Unlocks sales per person.</li><li><b>Cook on tickets:</b> record who cooks each ticket. Unlocks prep time per cook.</li><li><b>Station for every dish:</b> set one per dish. Unlocks station sales.</li></ul>"
+        x: 0
+        y: 10
+        w: 20
+        h: 6
       - text: "<p><b>Not recorded yet</b> - a zero here means not recorded, not that all is well</p>"
         x: 0
-        y: 11
+        y: 17
         w: 20
         h: 1
-      - {chart: db14_actor, x: 0, y: 12, w: 5, h: 3}
-      - {chart: db14_yield_dept, x: 5, y: 12, w: 5, h: 3}
-      - {chart: db14_waste, x: 10, y: 12, w: 5, h: 3}
-      - {chart: db14_emp_link, x: 15, y: 12, w: 5, h: 3}
+      - {chart: db14_actor, x: 0, y: 18, w: 5, h: 3}
+      - {chart: db14_yield_dept, x: 5, y: 18, w: 5, h: 3}
+      - {chart: db14_waste, x: 10, y: 18, w: 5, h: 3}
+      - {chart: db14_emp_link, x: 15, y: 18, w: 5, h: 3}
       - text: "<p><b>Set-up gaps</b> - sales and dishes that are not mapped yet</p>"
         x: 0
-        y: 15
+        y: 22
         w: 20
         h: 1
-      - {chart: db14_unmapped, x: 0, y: 16, w: 5, h: 3}
-      - {chart: db14_unassigned, x: 5, y: 16, w: 5, h: 3}
-      - {chart: db14_items_nodept, x: 10, y: 16, w: 5, h: 3}
-      - {chart: db14_plan_ctrl, x: 15, y: 16, w: 5, h: 3}
+      - {chart: db14_unmapped, x: 0, y: 23, w: 5, h: 3}
+      - {chart: db14_unassigned, x: 5, y: 23, w: 5, h: 3}
+      - {chart: db14_items_nodept, x: 10, y: 23, w: 5, h: 3}
+      - {chart: db14_plan_ctrl, x: 15, y: 23, w: 5, h: 3}
       - text: "<p><b>Menu clean-up</b> - dishes on the POS that have never been sold</p>"
         x: 0
-        y: 19
+        y: 27
         w: 20
         h: 1
-      - {chart: db14_nonselling, x: 0, y: 20, w: 20, h: 7}
+      - {chart: db14_nonselling, x: 0, y: 28, w: 20, h: 7}

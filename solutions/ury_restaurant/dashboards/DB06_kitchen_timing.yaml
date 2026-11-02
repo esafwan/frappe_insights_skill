@@ -40,9 +40,11 @@ queries:
 
 charts:
   # S1 KPI row. UX: no metric ids/tier codes in titles. (was T2)
-  - {id: db06_kpi, title: "KOTs and KOTs over target", query: fact_kot_headers, type: Number,
-     y: [{column: name, agg: count, as: KOTs},
-         {expr: "sum(sla_breach) / sum(is_served)", as: "KOTs over target (%)", format: percent}]}
+  # One Number chart per tile: Insights renders a multi-measure Number at a fixed narrow tile width.
+  - {id: db06_kots_kpi, title: "KOTs", query: fact_kot_headers, type: Number,
+     y: [{column: name, agg: count, as: KOTs}]}
+  - {id: db06_over_target_kpi, title: "KOTs over target (%)", query: fact_kot_headers, type: Number,
+     y: [{expr: "(sum(sla_breach) / sum(is_served)).round(1)", as: "KOTs over target (%)", format: percent}]}
   - {id: db06_avg_prep, title: "Avg prep time (min)", query: fact_kot_headers, type: Number,
      filters: [{column: order_status, op: "=", value: "Served"}],
      y: [{expr: "avg(prod_minutes).round(1)", as: "Avg prep time (min)"}]}
@@ -71,17 +73,18 @@ dashboards:
     title: "Kitchen timing"
     filters:
       - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"},
-         layout: {x: 0, y: 2, w: 5, h: 1},
+         layout: {x: 0, y: 2, w: 7, h: 1},
          applies_to: {fact_kot_headers: date, fact_kot_exec: exec_date, fact_kot_stages: exec_date}}
       - {id: f_branch, label: Branch, type: string, icon: building-2,
-         layout: {x: 5, y: 2, w: 5, h: 1},
+         layout: {x: 7, y: 2, w: 7, h: 1},
          applies_to: {fact_kot_headers: branch, fact_kot_exec: branch, fact_kot_stages: branch}}
       - {id: f_department, label: Station, type: string, icon: chef-hat,
-         layout: {x: 10, y: 2, w: 5, h: 1},
+         layout: {x: 14, y: 2, w: 6, h: 1},
          applies_to: {fact_kot_headers: production, fact_kot_exec: department, fact_kot_stages: department}}
     items:
       - {text: "<p><b>Kitchen timing.</b> How busy is the kitchen, and are KOTs getting out on time? For the kitchen head and floor manager. Default period: last 30 days; every filter applies to every chart.</p>", x: 0, y: 0, w: 20, h: 2}
-      - {chart: db06_kpi, x: 0, y: 3, w: 8, h: 3}
+      - {chart: db06_kots_kpi, x: 0, y: 3, w: 4, h: 3}
+      - {chart: db06_over_target_kpi, x: 4, y: 3, w: 4, h: 3}
       - {chart: db06_avg_prep, x: 8, y: 3, w: 4, h: 3}
       - {chart: db06_open, x: 12, y: 3, w: 4, h: 3}
       - {chart: db06_modified, x: 16, y: 3, w: 4, h: 3}
