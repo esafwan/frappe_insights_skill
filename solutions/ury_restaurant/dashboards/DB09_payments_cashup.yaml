@@ -101,6 +101,7 @@ charts:
      y: [{column: difference, agg: sum, as: "Cash difference (₹)", format: currency}]}
   - {id: db09_variance, title: "Lines with a difference", query: fact_closing_details, type: Number,
      y: [{column: has_variance, agg: sum, as: "Lines with a difference"}]}
+  # EMP-010 Cash-up variance per cashier (shift rows with a difference)
   - {id: db09_diff_shifts, title: "Shifts with a cash difference (₹)", query: fact_closing_details, type: Table, limit: 15,
      filters: [{column: difference, op: "!=", value: 0}],
      rows: [{column: posting_date, as: Date}, {column: user, as: Cashier}, {column: mode_of_payment, as: Mode}],

@@ -123,6 +123,7 @@ charts:
      y: [{expr: "(sum(net_total)).round(0)", as: Net sales (₹), format: currency}]}
   - {id: db01_bills_kpi, title: "Bills", query: fact_invoices, type: Number,
      y: [{column: name, agg: count, as: Bills}]}
+  # SAL-004 Average ticket (average bill)
   - {id: db01_avg_bill_kpi, title: "Average bill (₹)", query: fact_invoices, type: Number,
      y: [{expr: "(sum(net_total) / count(name)).round(0)", as: Average bill (₹), format: currency}]}
   # SAL-007: with date+comparison the card shows the LATEST month and % change vs the previous month.
@@ -197,4 +198,5 @@ dashboards:
       - {chart: db01_yield, x: 12, y: 29, w: 4, h: 3}
       - {chart: db01_shrink, x: 16, y: 29, w: 4, h: 3}
       - {text: "<p><b>Estimate:</b> gross profit and margin come from the daily P and L; recipe costs cover only part of sales, so treat margin as indicative.</p>", x: 0, y: 32, w: 20, h: 1}
+      - {text: "<p><b>Not recorded yet:</b> sales against a monthly target. Add a monthly sales target per branch; progress shows here once it exists.</p>", x: 0, y: 33, w: 20, h: 2}
 desk: {workspace: "URY", label: "Owner Overview"}

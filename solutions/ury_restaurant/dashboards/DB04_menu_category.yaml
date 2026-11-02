@@ -47,7 +47,7 @@ charts:
   - {id: db04_unassigned, title: "Unassigned sales (₹)", query: fact_sales_lines_enriched, type: Number,
      filters: [{column: menu_category, op: "=", value: Unassigned}],
      y: [{expr: "sum(net_amount).round(0)", as: "Unassigned sales (₹)", format: currency}]}
-  # S3 Items (MNU-003, MNU-004)
+  # S3 Items (MNU-001 item revenue, MNU-003, MNU-004)
   - {id: db04_top, title: "Top 10 dishes by net sales (₹)", query: fact_sales_lines_enriched, type: Row, limit: 10,
      filters: [{column: category_family, op: "!=", value: Non-menu}, {column: category_family, op: "!=", value: Unassigned}],
      x: item_name, y: [{expr: "sum(net_amount).round(0)", as: "Net sales (₹)"}], order: [{by: "Net sales (₹)", dir: desc}]}

@@ -73,6 +73,29 @@ queries:
       - {as: waiter_name, type: String, expr: "coalesce(full_name, waiter)"}
     select: [name, posting_date, branch, company, order_type, waiter, waiter_name, cashier, population, grand_total, cancel_reason, restaurant_table]
 
+  # fact_kot_exec (sql, T3 on demo: structure ready, stamps milliseconds apart). Grain: one URY KOT Execution per
+  # (kot, production_unit), DEDUPED to the latest-modified row (6 KOTs have duplicate QUEUED rows).
+  # cancel_stage = where in the KOT life the cancel happened (short labels: they sit on a narrow Row axis); ready_by_name = cook full name (User.full_name).
+  # Why sql: durations need TIMESTAMPDIFF over Datetime (time_diff casts to TIME, drops dates/fractions, sign
+  # unverified); dedupe needs ROW_NUMBER(); KOT fire time is TIMESTAMP(KOT.date, KOT.time).
+  # TIMESTAMPDIFF(SECOND, a, b) = b - a (MariaDB). Date column: exec_date. department = executed unit's department.
+  - id: fact_kot_exec
+    title: "fact_kot_exec"
+    sql: "WITH ex AS (SELECT e.*, ROW_NUMBER() OVER (PARTITION BY e.kot, e.production_unit ORDER BY e.modified DESC) AS rn FROM `tabURY KOT Execution` e) SELECT ex.name, ex.kot, ex.state, ex.production_unit, COALESCE(NULLIF(pu.department, ''), ex.production_unit) AS department, ex.branch, ex.company, DATE(COALESCE(ex.started_at, ex.creation)) AS exec_date, HOUR(k.time) AS hour_of_day, k.type AS kot_type, ex.started_by, ex.ready_by, COALESCE(ur.full_name, ex.ready_by) AS ready_by_name, ex.served_by, ex.cancelled_by, pp.custom_kot_warning_time AS target_minutes, TIMESTAMPDIFF(SECOND, ex.creation, ex.started_at) AS queue_seconds, TIMESTAMPDIFF(SECOND, ex.started_at, ex.ready_at) AS prep_seconds, TIMESTAMPDIFF(SECOND, ex.ready_at, ex.served_at) AS pass_seconds, TIMESTAMPDIFF(SECOND, ex.started_at, ex.served_at) AS cycle_seconds, TIMESTAMPDIFF(SECOND, TIMESTAMP(k.date, k.time), ex.served_at) AS order_to_serve_seconds, CASE WHEN ex.state LIKE 'CANCELLED%' THEN 1 ELSE 0 END AS is_cancelled, CASE WHEN ex.state = 'CANCELLED_AFTER_START' THEN 'While cooking' WHEN ex.state = 'CANCELLED_AFTER_READY' THEN 'After ready' WHEN ex.state LIKE 'CANCELLED%' THEN 'Before start' END AS cancel_stage, CASE WHEN ex.state IN ('CANCELLED_AFTER_START','CANCELLED_AFTER_READY') THEN 1 ELSE 0 END AS wasted_prep, CASE WHEN ex.started_at IS NOT NULL THEN 1 ELSE 0 END AS was_started, CASE WHEN ex.ready_at IS NOT NULL THEN 1 ELSE 0 END AS was_ready, CASE WHEN ex.served_at IS NOT NULL THEN 1 ELSE 0 END AS was_served FROM ex JOIN `tabURY KOT` k ON k.name = ex.kot LEFT JOIN `tabURY Production Unit` pu ON pu.name = ex.production_unit LEFT JOIN `tabPOS Profile` pp ON pp.name = k.pos_profile LEFT JOIN `tabUser` ur ON ur.name = ex.ready_by WHERE ex.rn = 1 AND k.docstatus IN (1, 2)"
+
+  # fact_service_charges (builder, T4 on demo: no service-charge tax rows). Grain: one tax/charge row of a submitted POS Invoice whose
+  # account head contains 'Service'. tax_amount = service charge income. There is no tip field anywhere. Date column: posting_date.
+  - id: fact_service_charges
+    title: "fact_service_charges"
+    table: "Sales Taxes and Charges"
+    joins:
+      - {table: "POS Invoice", type: inner, on: [parent, name], columns: [posting_date, branch, company]}
+    filters:
+      - {column: parenttype, op: "=", value: "POS Invoice"}
+      - {column: docstatus, op: "=", value: 1}
+      - {column: account_head, op: contains, value: "Service"}
+    select: [name, parent, posting_date, branch, company, account_head, tax_amount]
+
 charts:
   # Staff performance (UX change list DB08). Person labels are full names (waiter_name / cashier_name from the shared
   # semantic layer joins); filters still bind to the login id. Administrator is excluded per chart.
@@ -123,14 +146,29 @@ charts:
      x: cashier_name, y: [{expr: "(sum(net_total)).round(0)", as: Net sales, format: currency}],
      order: [{by: Net sales, dir: desc}],
      filters: [{column: cashier, op: "!=", value: "Administrator"}]}
+  # S5 Discounts, kitchen speed and service charge
+  # EMP-011 Discount given per cashier
+  - {id: db08_discount, title: "Discounts given by cashier (₹)", query: fact_invoices_named, type: Row, limit: 15,
+     x: cashier_name, y: [{expr: "(sum(discount_amount)).round(0)", as: Discounts, format: currency}],
+     order: [{by: Discounts, dir: desc}],
+     filters: [{column: discount_amount, op: ">", value: 0}, {column: cashier, op: "!=", value: "Administrator"}]}
+  # EMP-013 Cook speed per user
+  - {id: db08_cook, title: "Avg prep time by cook (min)", query: fact_kot_exec, type: Row, limit: 15,
+     x: ready_by_name, y: [{expr: "(avg(prep_seconds) / 60).round(1)", as: "Prep time (min)"}],
+     order: [{by: "Prep time (min)", dir: desc}],
+     filters: [{column: was_ready, op: "=", value: 1}, {column: ready_by, op: "!=", value: "Administrator"}]}
+  # SAL-019 Service charge and tips
+  - {id: db08_service, title: "Service charge collected (₹)", query: fact_service_charges, type: Number,
+     y: [{expr: "(sum(tax_amount)).round(0)", as: "Service charge (₹)", format: currency}]}
+
 dashboards:
   - id: employee_performance
     title: "Staff performance"
     filters:
       - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"}, layout: {x: 0, y: 2, w: 5, h: 1},
-         applies_to: {fact_invoices_named: posting_date, fact_sales_lines_enriched: posting_date, fact_cancellations_named: posting_date}}
+         applies_to: {fact_invoices_named: posting_date, fact_sales_lines_enriched: posting_date, fact_cancellations_named: posting_date, fact_kot_exec: exec_date, fact_service_charges: posting_date}}
       - {id: f_branch, label: Branch, type: string, icon: building-2, layout: {x: 5, y: 2, w: 5, h: 1},
-         applies_to: {fact_invoices_named: branch, fact_sales_lines_enriched: branch, fact_cancellations_named: branch}}
+         applies_to: {fact_invoices_named: branch, fact_sales_lines_enriched: branch, fact_cancellations_named: branch, fact_kot_exec: branch, fact_service_charges: branch}}
       - {id: f_waiter, label: Waiter, type: string, icon: user, layout: {x: 10, y: 2, w: 5, h: 1},
          applies_to: {fact_invoices_named: waiter, fact_sales_lines_enriched: waiter, fact_cancellations_named: waiter}}
       - {id: f_order_type, label: Order type, type: string, icon: utensils, layout: {x: 15, y: 2, w: 5, h: 1},
@@ -150,5 +188,8 @@ dashboards:
       - {text: "<p><b>Cancellations and cashiers</b> - cancelled value by the person who opened the order, and sales by cashier</p>", x: 0, y: 23, w: 20, h: 1}
       - {chart: db08_cancels, x: 0, y: 24, w: 10, h: 7}
       - {chart: db08_cashier, x: 10, y: 24, w: 10, h: 7}
-      - {text: "<p>Cancelled value is credited to the person who opened the order, not necessarily who cancelled it. Covers count dine-in bills only.</p>", x: 0, y: 31, w: 20, h: 1}
-      - {text: "<p><b>Not recorded yet:</b> cook speed, sales per labour hour and tips. Needs cook logins on the kitchen screen, attendance hours and a tips field on the bill.</p>", x: 0, y: 32, w: 20, h: 2}
+      - {text: "<p>Cancelled value is credited to the person who opened the order, not necessarily who cancelled it. Covers count dine-in bills only.</p>", x: 0, y: 41, w: 20, h: 1}
+      - {text: "<p><b>Not recorded yet:</b> sales per labour hour and tips. Needs attendance hours by branch and a tips field on the bill. Cook speed uses kitchen screen times, which on this site are test data; service charge shows once a service-charge tax is billed.</p>", x: 0, y: 42, w: 20, h: 2}
+      - {chart: db08_discount, x: 0, y: 31, w: 10, h: 7}
+      - {chart: db08_cook, x: 10, y: 31, w: 10, h: 7}
+      - {chart: db08_service, x: 0, y: 38, w: 5, h: 3}

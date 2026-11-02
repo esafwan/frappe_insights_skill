@@ -28,14 +28,16 @@ queries:
     title: "fact_yield_checks"
     table: "URY Yield Check"
     joins:
-      - {table: "Item", type: left, on: [item, name], columns: [item_name, item_group]}
+      - {table: "Item", type: left, on: [item, name], columns: [item_name, item_group, valuation_rate]}
     mutate:
       - {as: expected_output, type: Decimal, expr: "input_qty * standard_yield_percent_snapshot / 100"}
       - {as: yield_loss_qty, type: Decimal, expr: "input_qty * standard_yield_percent_snapshot / 100 - output_qty"}
+      - {as: yield_loss_value, type: Decimal, expr: "(input_qty * standard_yield_percent_snapshot / 100 - output_qty) * valuation_rate"}
       - {as: below_standard, type: Integer, expr: "if_else(variance_percent < 0, 1, 0)"}
       - {as: out_of_tolerance, type: Integer, expr: "if_else(variance_percent < -5, 1, 0)"}
-    select: [name, checked_on, branch, company, department, production_unit, item, item_name, item_group, stock_uom, check_type, checked_by, input_qty, output_qty, expected_output, yield_loss_qty, actual_yield_percent, standard_yield_percent_snapshot, variance_percent, below_standard, out_of_tolerance]
+    select: [name, checked_on, branch, company, department, production_unit, item, item_name, item_group, stock_uom, check_type, checked_by, input_qty, output_qty, expected_output, yield_loss_qty, yield_loss_value, actual_yield_percent, standard_yield_percent_snapshot, variance_percent, below_standard, out_of_tolerance]
 charts:
+  # YLD-001 Weighted yield, YLD-002 Standard yield, YLD-005 Checks below standard
   - id: db12_kpi
     title: "Yield KPIs"
     query: fact_yield_checks
@@ -45,6 +47,7 @@ charts:
       - {expr: "sum(expected_output) / sum(input_qty) * 100", as: "Standard yield (%)"}
       - {expr: "sum(below_standard) / count(name)", as: "Checks below standard (%)", format: percent}
       - {expr: "sum(out_of_tolerance) / count(name)", as: "Checks outside 5-point tolerance (%)", format: percent}
+  # YLD-003 Yield gap vs standard (points)
   - id: db12_gap
     title: "Yield gap vs standard (points, negative = under-yield)"
     query: fact_yield_checks
@@ -53,6 +56,7 @@ charts:
     x: item_name
     y: [{expr: "sum(output_qty - expected_output) / sum(input_qty) * 100", as: Gap Pts}]
     order: [{by: Gap Pts, dir: asc}]
+  # YLD-004 Yield loss quantity
   - id: db12_loss
     title: "Yield Loss Quantity by Item"
     query: fact_yield_checks
@@ -61,6 +65,7 @@ charts:
     x: item_name
     y: [{column: yield_loss_qty, agg: sum, as: Yield Loss Qty}]
     order: [{by: Yield Loss Qty, dir: desc}]
+  # YLD-007 Yield trend (weekly gap to standard by item)
   - id: db12_trend
     title: "Weekly yield gap by item (points)"
     query: fact_yield_checks
@@ -77,6 +82,19 @@ charts:
     x: item_name
     y: [{column: amount_difference, agg: sum, as: Count Variance, format: currency}]
     order: [{by: Count Variance, dir: asc}]
+  # YLD-008 Yield by department (department is not set on yield checks yet, so this stays empty until it is)
+  - {id: db12_dept, title: "Yield by station (%)", query: fact_yield_checks, type: Row, limit: 10,
+     filters: [{column: department, op: is_set}],
+     x: department, y: [{expr: "sum(output_qty) / sum(input_qty)", as: "Yield (%)", format: percent}], order: [{by: "Yield (%)", dir: desc}]}
+  # YLD-009 Yield loss cost
+  - {id: db12_loss_cost, title: "Yield loss value (₹)", query: fact_yield_checks, type: Number,
+     y: [{expr: "(sum(yield_loss_value)).round(0)", as: "Yield loss value (₹)", format: currency}]}
+  # YLD-010 Yield check compliance (checks done per item; the expected check schedule is not modelled)
+  - {id: db12_checks, title: "Yield checks done by item (count)", query: fact_yield_checks, type: Table, limit: 15,
+     rows: [{column: item_name, as: Item}],
+     y: [{column: name, agg: count, as: "Checks done"}, {column: checked_on, agg: max, as: "Last check"}],
+     order: [{by: "Checks done", dir: asc}]}
+
 dashboards:
   - id: yield_recipe
     title: "Yield and recipe"
@@ -100,4 +118,9 @@ dashboards:
       - {chart: db12_loss, x: 10, y: 6, w: 10, h: 9}
       - {chart: db12_trend, x: 0, y: 15, w: 20, h: 6}
       - {chart: db12_count_var, x: 0, y: 21, w: 20, h: 7}
-      - {text: "<p><b>Not recorded yet:</b> yield by station and by checker. Record the department and checker on each yield check.</p>", x: 0, y: 28, w: 20, h: 1}
+      - {text: "<p><b>Not recorded yet:</b> yield by station and by checker. Record the department and checker on each yield check.</p>", x: 0, y: 40, w: 20, h: 1}
+      - {chart: db12_dept, x: 0, y: 28, w: 10, h: 6}
+      - {chart: db12_loss_cost, x: 10, y: 28, w: 5, h: 3}
+      - {text: "<p><b>Estimate:</b> yield loss value uses the item stock rate and the net shortfall against standard.</p>", x: 15, y: 28, w: 5, h: 3}
+      - {chart: db12_checks, x: 0, y: 34, w: 20, h: 6}
+      - {text: "<p><b>Partial data:</b> checks done counts what was recorded; the expected check schedule per item is not modelled, so this cannot say who is overdue.</p>", x: 0, y: 41, w: 20, h: 1}

@@ -77,7 +77,7 @@ queries:
   # TIMESTAMPDIFF(SECOND, a, b) = b - a (MariaDB). Date column: exec_date. department = executed unit's department.
   - id: fact_kot_exec
     title: "fact_kot_exec"
-    sql: "WITH ex AS (SELECT e.*, ROW_NUMBER() OVER (PARTITION BY e.kot, e.production_unit ORDER BY e.modified DESC) AS rn FROM `tabURY KOT Execution` e) SELECT ex.name, ex.kot, ex.state, ex.production_unit, COALESCE(NULLIF(pu.department, ''), ex.production_unit) AS department, ex.branch, ex.company, DATE(COALESCE(ex.started_at, ex.creation)) AS exec_date, HOUR(k.time) AS hour_of_day, k.type AS kot_type, ex.started_by, ex.ready_by, ex.served_by, ex.cancelled_by, pp.custom_kot_warning_time AS target_minutes, TIMESTAMPDIFF(SECOND, ex.creation, ex.started_at) AS queue_seconds, TIMESTAMPDIFF(SECOND, ex.started_at, ex.ready_at) AS prep_seconds, TIMESTAMPDIFF(SECOND, ex.ready_at, ex.served_at) AS pass_seconds, TIMESTAMPDIFF(SECOND, ex.started_at, ex.served_at) AS cycle_seconds, TIMESTAMPDIFF(SECOND, TIMESTAMP(k.date, k.time), ex.served_at) AS order_to_serve_seconds, CASE WHEN ex.state LIKE 'CANCELLED%' THEN 1 ELSE 0 END AS is_cancelled, CASE WHEN ex.state IN ('CANCELLED_AFTER_START','CANCELLED_AFTER_READY') THEN 1 ELSE 0 END AS wasted_prep, CASE WHEN ex.started_at IS NOT NULL THEN 1 ELSE 0 END AS was_started, CASE WHEN ex.ready_at IS NOT NULL THEN 1 ELSE 0 END AS was_ready, CASE WHEN ex.served_at IS NOT NULL THEN 1 ELSE 0 END AS was_served FROM ex JOIN `tabURY KOT` k ON k.name = ex.kot LEFT JOIN `tabURY Production Unit` pu ON pu.name = ex.production_unit LEFT JOIN `tabPOS Profile` pp ON pp.name = k.pos_profile WHERE ex.rn = 1 AND k.docstatus IN (1, 2)"
+    sql: "WITH ex AS (SELECT e.*, ROW_NUMBER() OVER (PARTITION BY e.kot, e.production_unit ORDER BY e.modified DESC) AS rn FROM `tabURY KOT Execution` e) SELECT ex.name, ex.kot, ex.state, ex.production_unit, COALESCE(NULLIF(pu.department, ''), ex.production_unit) AS department, ex.branch, ex.company, DATE(COALESCE(ex.started_at, ex.creation)) AS exec_date, HOUR(k.time) AS hour_of_day, k.type AS kot_type, ex.started_by, ex.ready_by, COALESCE(ur.full_name, ex.ready_by) AS ready_by_name, ex.served_by, ex.cancelled_by, pp.custom_kot_warning_time AS target_minutes, TIMESTAMPDIFF(SECOND, ex.creation, ex.started_at) AS queue_seconds, TIMESTAMPDIFF(SECOND, ex.started_at, ex.ready_at) AS prep_seconds, TIMESTAMPDIFF(SECOND, ex.ready_at, ex.served_at) AS pass_seconds, TIMESTAMPDIFF(SECOND, ex.started_at, ex.served_at) AS cycle_seconds, TIMESTAMPDIFF(SECOND, TIMESTAMP(k.date, k.time), ex.served_at) AS order_to_serve_seconds, CASE WHEN ex.state LIKE 'CANCELLED%' THEN 1 ELSE 0 END AS is_cancelled, CASE WHEN ex.state = 'CANCELLED_AFTER_START' THEN 'While cooking' WHEN ex.state = 'CANCELLED_AFTER_READY' THEN 'After ready' WHEN ex.state LIKE 'CANCELLED%' THEN 'Before start' END AS cancel_stage, CASE WHEN ex.state IN ('CANCELLED_AFTER_START','CANCELLED_AFTER_READY') THEN 1 ELSE 0 END AS wasted_prep, CASE WHEN ex.started_at IS NOT NULL THEN 1 ELSE 0 END AS was_started, CASE WHEN ex.ready_at IS NOT NULL THEN 1 ELSE 0 END AS was_ready, CASE WHEN ex.served_at IS NOT NULL THEN 1 ELSE 0 END AS was_served FROM ex JOIN `tabURY KOT` k ON k.name = ex.kot LEFT JOIN `tabURY Production Unit` pu ON pu.name = ex.production_unit LEFT JOIN `tabPOS Profile` pp ON pp.name = k.pos_profile LEFT JOIN `tabUser` ur ON ur.name = ex.ready_by WHERE ex.rn = 1 AND k.docstatus IN (1, 2)"
 
   # fact_cancellations_named (builder, T1). fact_cancellations plus waiter_name (User.full_name of the order owner).
   - id: fact_cancellations_named
@@ -88,6 +88,28 @@ queries:
     mutate:
       - {as: waiter_name, type: String, expr: "coalesce(full_name, waiter)"}
     select: [name, posting_date, branch, company, order_type, waiter, waiter_name, cashier, population, grand_total, cancel_reason, restaurant_table]
+
+  # ---------------------------------------------------------------- ADDED FOR FULL METRIC COVERAGE
+  # fact_bills_all (builder, T1). Grain: one submitted OR cancelled non-return POS Invoice (docstatus 1 and 2). Only for ratios that need
+  # cancelled and submitted value on the same rows: cancellation rate = SUM(cancelled_value) / SUM(grand_total). Date column: posting_date.
+  - id: fact_bills_all
+    title: "fact_bills_all"
+    table: "POS Invoice"
+    filters:
+      - {column: docstatus, op: in, value: [1, 2]}
+      - {column: is_return, op: "=", value: 0}
+    mutate:
+      - {as: cancelled_value, type: Decimal, expr: "if_else(docstatus == 2, grand_total, 0)"}
+    select: [name, posting_date, branch, company, order_type, waiter, cashier, grand_total, cancelled_value]
+
+  # fact_returns (builder, T1). Grain: one submitted return (credit note) POS Invoice; grand_total is negative. Date column: posting_date.
+  - id: fact_returns
+    title: "fact_returns"
+    table: "POS Invoice"
+    filters:
+      - {column: docstatus, op: "=", value: 1}
+      - {column: is_return, op: "=", value: 1}
+    select: [name, posting_date, branch, company, order_type, waiter, cashier, grand_total, return_against]
 
 charts:
   # S1 KPIs (one tile per chart; currency rounded to whole rupees)
@@ -114,30 +136,41 @@ charts:
      x: waiter_name, y: [{expr: "(sum(grand_total)).round(0)", as: "Cancelled value (₹)", format: currency}],
      order: [{by: "Cancelled value (₹)", dir: desc}]}
   # S4 Kitchen side
-  - {id: db15_stage, title: "Kitchen cancellations by stage (count)", query: fact_kot_exec, type: Bar, limit: 10,
+  - {id: db15_stage, title: "Kitchen cancellations by stage (count)", query: fact_kot_exec, type: Row, limit: 10,
      filters: [{column: is_cancelled, op: "=", value: 1}],
-     x: state, y: [{column: name, agg: count, as: Cancelled tickets}]}
+     x: cancel_stage, y: [{column: name, agg: count, as: Cancelled tickets}]}
   - {id: db15_modified, title: "Modified KOTs", query: fact_kot_headers, type: Number,
      filters: [{column: type, op: "=", value: "Order Modified"}],
      y: [{column: name, agg: count, as: Modified KOTs}]}
   - {id: db15_voids, title: "Voided kitchen quantity (count)", query: fact_kot_lines, type: Number,
      y: [{column: cancelled_qty_num, agg: sum, as: Voided quantity}]}
+  # LKG-003 Cancellation rate (value): cancelled value over submitted plus cancelled value, on one union of both kinds of bill
+  - {id: db15_rate, title: "Cancelled share of sales (%)", query: fact_bills_all, type: Number,
+     y: [{expr: "sum(cancelled_value) / sum(grand_total)", as: "Cancelled share (%)", format: percent}]}
+  # LKG-007 Out-of-stock cancellations
+  - {id: db15_oos, title: "Out-of-stock cancels (count)", query: fact_cancellations, type: Number,
+     filters: [{column: cancel_reason, op: "=", value: "Kitchen out of stock"}],
+     y: [{column: name, agg: count, as: "Out-of-stock cancels"}]}
+  # SAL-018 Returns value
+  - {id: db15_returns, title: "Returned value (₹)", query: fact_returns, type: Number,
+     y: [{expr: "(-sum(grand_total)).round(0)", as: "Returned value (₹)", format: currency}]}
+
 dashboards:
   - id: leakage
     title: "Leakage"
     filters:
       - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"},
          layout: {x: 0, y: 2, w: 5, h: 1},
-         applies_to: {fact_cancellations: posting_date, fact_cancellations_named: posting_date, fact_invoices: posting_date, fact_kot_exec: exec_date, fact_kot_headers: date, fact_kot_lines: date}}
+         applies_to: {fact_cancellations: posting_date, fact_cancellations_named: posting_date, fact_invoices: posting_date, fact_kot_exec: exec_date, fact_kot_headers: date, fact_kot_lines: date, fact_bills_all: posting_date, fact_returns: posting_date}}
       - {id: f_branch, label: Branch, type: string, icon: building-2,
          layout: {x: 5, y: 2, w: 5, h: 1},
-         applies_to: {fact_cancellations: branch, fact_cancellations_named: branch, fact_invoices: branch, fact_kot_exec: branch, fact_kot_headers: branch, fact_kot_lines: branch}}
+         applies_to: {fact_cancellations: branch, fact_cancellations_named: branch, fact_invoices: branch, fact_kot_exec: branch, fact_kot_headers: branch, fact_kot_lines: branch, fact_bills_all: branch, fact_returns: branch}}
       - {id: f_waiter, label: Waiter, type: string, icon: user,
          layout: {x: 10, y: 2, w: 5, h: 1},
-         applies_to: {fact_cancellations: waiter, fact_cancellations_named: waiter, fact_invoices: waiter}}
+         applies_to: {fact_cancellations: waiter, fact_cancellations_named: waiter, fact_invoices: waiter, fact_bills_all: waiter, fact_returns: waiter}}
       - {id: f_order_type, label: Order type, type: string, icon: utensils,
          layout: {x: 15, y: 2, w: 5, h: 1},
-         applies_to: {fact_cancellations: order_type, fact_cancellations_named: order_type, fact_invoices: order_type}}
+         applies_to: {fact_cancellations: order_type, fact_cancellations_named: order_type, fact_invoices: order_type, fact_bills_all: order_type, fact_returns: order_type}}
     items:
       - {text: "<p><b>Leakage.</b> How much was cancelled, discounted or billed at zero, why and by whom. For owner and finance. Default: last 90 days; aim for cancellations under 2% of net sales.</p>", x: 0, y: 0, w: 20, h: 2}
       - {chart: db15_cnt, x: 0, y: 3, w: 5, h: 3}
@@ -151,7 +184,11 @@ dashboards:
       - {text: "<p>The person shown took the order, not necessarily the one who cancelled. Cancelled value includes duplicates and re-billed orders, so it is not all lost revenue.</p>", x: 10, y: 21, w: 10, h: 2}
       - {chart: db15_disc, x: 0, y: 21, w: 5, h: 3}
       - {text: "<p><b>Not enough data yet:</b> discounts by cashier. Shows once discounted bills are common enough to compare.</p>", x: 5, y: 21, w: 5, h: 3}
-      - {chart: db15_stage, x: 0, y: 24, w: 10, h: 7}
+      - {chart: db15_stage, x: 0, y: 24, w: 10, h: 9}
       - {chart: db15_modified, x: 10, y: 24, w: 5, h: 3}
       - {chart: db15_voids, x: 15, y: 24, w: 5, h: 3}
+      - {chart: db15_rate, x: 10, y: 27, w: 5, h: 3}
+      - {chart: db15_oos, x: 15, y: 27, w: 5, h: 3}
+      - {chart: db15_returns, x: 10, y: 30, w: 5, h: 3}
+      - {text: "<p>Cancelled share = cancelled value over submitted plus cancelled value. Returned value is credit notes; it is zero when no returns were billed.</p>", x: 15, y: 30, w: 5, h: 3}
 desk: {workspace: "URY", label: "Leakage"}

@@ -62,6 +62,13 @@ queries:
       - {as: over_qty, type: Decimal, expr: "if_else(fulfilled_qty > qty, fulfilled_qty - qty, 0)"}
     select: [name, parent, plan_date, branch, company, status, service_period, enforcement_mode, item_code, department, production_unit, production_policy, stock_uom, qty, committed_qty, fulfilled_qty, under_qty, over_qty]
 
+  # fact_sales_lines_policy (builder chain, T2). fact_sales_lines_enriched plus policy_label (production policy in plain words).
+  - id: fact_sales_lines_policy
+    title: "fact_sales_lines_policy"
+    source_query: fact_sales_lines_enriched
+    mutate:
+      - {as: policy_label, type: String, expr: "if_else(production_policy == 'PRE_PRODUCED', 'Pre-produced', if_else(production_policy == 'MADE_TO_ORDER', 'Made to order', if_else(production_policy == 'DIRECT_RETAIL', 'Direct retail', 'Not set')))"}
+
 charts:
   # S1 KPI row (UX change list DB05 P0-1)
   - {id: db05_kpi_kots, title: "KOTs", query: fact_kot_headers, type: Number,
@@ -87,18 +94,25 @@ charts:
   - {id: db05_dept_rev, title: "Sales by assigned department (₹)", query: fact_sales_lines_enriched, type: Row, limit: 15,
      filters: [{column: department, op: "!=", value: "Unmapped"}],
      x: department, y: [{expr: "sum(floor(net_amount + 0.5))", as: Net sales, format: currency}], order: [{by: Net sales, dir: desc}]}
-  # dropped per change list: db05_policy, db05_warehouse donuts and db05_qty_unit table
+  # S4 How the sales were produced
+  # PRD-002 Revenue by kitchen warehouse
+  - {id: db05_warehouse, title: "Net sales by kitchen warehouse (₹)", query: fact_sales_lines_enriched, type: Donut, limit: 5, max_slices: 5,
+     x: warehouse, y: [{expr: "sum(floor(net_amount + 0.5))", as: Net sales, format: currency}], order: [{by: Net sales, dir: desc}]}
+  # PRD-003 Revenue by production policy
+  - {id: db05_policy, title: "Net sales by production policy (₹)", query: fact_sales_lines_policy, type: Donut, limit: 5, max_slices: 5,
+     x: policy_label, y: [{expr: "sum(floor(net_amount + 0.5))", as: Net sales, format: currency}], order: [{by: Net sales, dir: desc}]}
+  # dropped per change list: db05_qty_unit table
 
 dashboards:
   - id: department_production
     title: "Kitchen stations and production"
     filters:
       - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"}, layout: {x: 0, y: 2, w: 7, h: 1},
-         applies_to: {fact_sales_lines_enriched: posting_date, fact_kot_headers: date, fact_kot_lines: date, fact_sales_plan_items: plan_date}}
+         applies_to: {fact_sales_lines_enriched: posting_date, fact_kot_headers: date, fact_kot_lines: date, fact_sales_plan_items: plan_date, fact_sales_lines_policy: posting_date}}
       - {id: f_branch, label: Branch, type: string, icon: building-2, layout: {x: 7, y: 2, w: 7, h: 1},
-         applies_to: {fact_sales_lines_enriched: branch, fact_kot_headers: branch, fact_kot_lines: branch, fact_sales_plan_items: branch}}
+         applies_to: {fact_sales_lines_enriched: branch, fact_kot_headers: branch, fact_kot_lines: branch, fact_sales_plan_items: branch, fact_sales_lines_policy: branch}}
       - {id: f_department, label: Department, type: string, icon: chef-hat, layout: {x: 14, y: 2, w: 6, h: 1},
-         applies_to: {fact_sales_lines_enriched: department, fact_kot_headers: production, fact_kot_lines: production, fact_sales_plan_items: department}}
+         applies_to: {fact_sales_lines_enriched: department, fact_kot_headers: production, fact_kot_lines: production, fact_sales_plan_items: department, fact_sales_lines_policy: department}}
     items:
       - {text: "<p><b>Kitchen stations and production.</b> How much each station made, whether it met the sales plan, and which department the sales belong to. For kitchen head. Default period: last 30 days; every filter applies to every chart.</p>", x: 0, y: 0, w: 20, h: 2}
       - {chart: db05_kpi_kots, x: 0, y: 3, w: 5, h: 3}
@@ -110,4 +124,6 @@ dashboards:
       - {chart: db05_top_dishes, x: 10, y: 8, w: 10, h: 8}
       - {chart: db05_plan_dept, x: 0, y: 16, w: 10, h: 7}
       - {chart: db05_dept_rev, x: 10, y: 16, w: 10, h: 7}
-      - {text: "<p><b>Not recorded yet:</b> wastage and yield by department. Log wastage and set the department on each yield check; this section fills automatically.</p>", x: 0, y: 23, w: 20, h: 2}
+      - {text: "<p><b>Not recorded yet:</b> wastage and yield by department. Log wastage and set the department on each yield check; this section fills automatically.</p>", x: 0, y: 30, w: 20, h: 2}
+      - {chart: db05_warehouse, x: 0, y: 23, w: 10, h: 7}
+      - {chart: db05_policy, x: 10, y: 23, w: 10, h: 7}

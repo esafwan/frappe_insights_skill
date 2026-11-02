@@ -132,6 +132,17 @@ charts:
      filters: [{column: is_sales_item, op: "=", value: 1}, {column: is_sold, op: "!=", value: 1}, {column: disabled, op: "!=", value: 1},
                {column: category_family, op: in, value: [Food, Beverage]}],
      rows: [menu_category], columns: [category_family], y: [{column: item_code, agg: count, as: Dishes}]}
+  # ---- Where the data comes from (DQ-001, DQ-004, DQ-011)
+  - {id: db14_population, title: "Bills by payment stage (count)", query: fact_invoices, type: Donut, limit: 5, max_slices: 5,
+     x: population, y: [{column: name, agg: count, as: Bills}]}
+  - {id: db14_covers_share, title: "Dine-in bills with covers (%)", query: fact_invoices, type: Bar, limit: 5,
+     filters: [{column: order_type, op: "=", value: "Dine In"}],
+     x: population, y: [{expr: "count_if(pax > 0) / count(name)", as: "Bills with covers (%)", format: percent}]}
+  - {id: db14_branches, title: "Branches with data", query: fact_invoices, type: Number,
+     y: [{column: branch, agg: count_distinct, as: "Branches with data"}]}
+  - {id: db14_companies, title: "Companies with data", query: fact_invoices, type: Number,
+     y: [{column: company, agg: count_distinct, as: "Companies with data"}]}
+
 dashboards:
   - id: data_quality
     title: "Data readiness"
@@ -184,3 +195,12 @@ dashboards:
         w: 20
         h: 1
       - {chart: db14_nonselling, x: 0, y: 28, w: 20, h: 7}
+      - text: "<p><b>Where the data comes from</b> - bill mix, covers recorded and sites reporting</p>"
+        x: 0
+        y: 35
+        w: 20
+        h: 1
+      - {chart: db14_population, x: 0, y: 36, w: 8, h: 7}
+      - {chart: db14_covers_share, x: 8, y: 36, w: 8, h: 7}
+      - {chart: db14_branches, x: 16, y: 36, w: 4, h: 3}
+      - {chart: db14_companies, x: 16, y: 39, w: 4, h: 3}

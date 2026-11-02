@@ -116,6 +116,10 @@ charts:
      y: [{column: name, agg: count, as: "Cancelled bills"}]}
   - {id: db02_cancel, title: "Cancelled value (₹)", query: fact_cancellations, type: Number,
      y: [{expr: "(sum(grand_total)).round(0)", as: "Cancelled value (₹)", format: currency}]}
+  # LKG-007 Out-of-stock cancellations
+  - {id: db02_oos_cancel, title: "Out-of-stock cancels (count)", query: fact_cancellations, type: Number,
+     filters: [{column: cancel_reason, op: "=", value: "Kitchen out of stock"}],
+     y: [{column: name, agg: count, as: "Out-of-stock cancels"}]}
   - {id: db02_yield_checks, title: "Yield checks done (count)", query: fact_yield_checks, type: Number,
      y: [{column: name, agg: count, as: "Yield checks done"}]}
   - {id: db02_yield_alert, title: "Yield checks failed (count)", query: fact_yield_checks, type: Number,
@@ -149,4 +153,5 @@ dashboards:
       - {chart: db02_cancel, x: 15, y: 17, w: 5, h: 3}
       - {chart: db02_yield_checks, x: 0, y: 20, w: 5, h: 3}
       - {chart: db02_yield_alert, x: 5, y: 20, w: 5, h: 3}
-      - {text: "<p>Yield checks failed = checks more than 5 points under the recipe standard.</p>", x: 10, y: 20, w: 10, h: 3}
+      - {chart: db02_oos_cancel, x: 10, y: 20, w: 5, h: 3}
+      - {text: "<p>Yield checks failed = checks more than 5 points under the recipe standard.</p>", x: 15, y: 20, w: 5, h: 3}

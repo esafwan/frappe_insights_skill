@@ -36,7 +36,7 @@ FILTER_LEVEL = {
 }
 ID_RE = re.compile(r"\b[A-Z]{2,3}-\d{3}\b")
 IGNORE_COMMENT = re.compile(r"T4|not recorded|dropped|removed|not shown|roadmap", re.I)
-CHART_RE = re.compile(r"^\s*- \{id: (db\d\d_\w+)")
+CHART_RE = re.compile(r"^\s*- (?:\{id|id): (db\d\d_\w+)")
 
 
 def norm(s):

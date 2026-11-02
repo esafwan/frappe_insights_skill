@@ -24,12 +24,21 @@ queries:
       - {as: is_zero_bill, type: Integer, expr: "if_else(grand_total == 0, 1, 0)"}
       - {as: has_discount, type: Integer, expr: "if_else(discount_amount > 0, 1, 0)"}
     select: [name, posting_date, hour_of_day, hour_label, weekday, weekday_label, branch, company, order_type, waiter, cashier, custom_waiter_employee, population, pos_profile, restaurant_table, customer, selling_price_list, total, net_total, grand_total, rounded_total, discount_amount, paid_amount, change_amount, total_qty, pax, is_zero_bill, has_discount]
+
+  # fact_ordering_sessions (builder, T4 on demo: 0 rows). Grain: one QR/kiosk ordering session. invoice is set when the session became a bill.
+  # No branch column exists (sessions hang off a table), so only the Date filter can apply. Date column: opened_at.
+  - id: fact_ordering_sessions
+    title: "fact_ordering_sessions"
+    table: "URY Ordering Session"
+    select: [name, source, status, opened_at, invoice, table]
+
 charts:
   # One Number chart per tile: Insights renders a multi-measure Number at a fixed narrow tile width.
   - {id: db03_net_sales_kpi, title: "Net sales (₹)", query: fact_invoices, type: Number,
      y: [{expr: "sum(net_total).round(0)", as: "Net sales (₹)", format: currency}]}
   - {id: db03_bills_kpi, title: "Bills", query: fact_invoices, type: Number,
      y: [{column: name, agg: count, as: Bills}]}
+  # SAL-004 Average ticket (average bill)
   - {id: db03_avg_bill_kpi, title: "Average bill (₹)", query: fact_invoices, type: Number,
      y: [{expr: "(sum(net_total) / count(name)).round(0)", as: "Average bill (₹)", format: currency}]}
   - {id: db03_items_per_bill_kpi, title: "Items per bill", query: fact_invoices, type: Number,
@@ -47,11 +56,16 @@ charts:
   - {id: db03_channel, title: "Net sales by channel (₹)", query: fact_invoices, type: Row,
      x: order_type, y: [{column: net_total, agg: sum, as: "Net sales"}],
      order: [{by: "Net sales", dir: desc}]}
+  # SAL-020 Self-order (QR/kiosk) share: count of bills that came from a QR or kiosk session (share needs sessions to exist)
+  - {id: db03_self_order, title: "Self-order bills (count)", query: fact_ordering_sessions, type: Number,
+     filters: [{column: invoice, op: is_set}],
+     y: [{column: name, agg: count, as: "Self-order bills"}]}
+
 dashboards:
   - id: sales_deep_dive
     title: "Sales deep-dive"
     filters:
-      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"}, applies_to: {fact_invoices: posting_date}, layout: {x: 0, y: 2, w: 5, h: 1}}
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"}, applies_to: {fact_invoices: posting_date, fact_ordering_sessions: opened_at}, layout: {x: 0, y: 2, w: 5, h: 1}}
       - {id: f_branch, label: Branch, type: string, icon: store, applies_to: {fact_invoices: branch}, layout: {x: 5, y: 2, w: 5, h: 1}}
       - {id: f_order_type, label: "Order type", type: string, icon: utensils, applies_to: {fact_invoices: order_type}, layout: {x: 10, y: 2, w: 5, h: 1}}
       - {id: f_waiter, label: Waiter, type: string, icon: user, applies_to: {fact_invoices: waiter}, layout: {x: 15, y: 2, w: 5, h: 1}}
@@ -67,3 +81,5 @@ dashboards:
       - {chart: db03_channel, x: 12, y: 13, w: 8, h: 8}
       - {text: "<p>Net sales exclude tax and cancelled bills. Average bill = net sales per bill.</p>", x: 0, y: 21, w: 20, h: 1}
       # T4 (not recorded): SAL-020 self-order share (URY Ordering Session has 0 rows), SAL-021 targets (no target table), roadmap R13, R15. Empty-state text is P2, not applied.
+      - {chart: db03_self_order, x: 0, y: 22, w: 5, h: 3}
+      - {text: "<p><b>Not recorded yet:</b> share of bills ordered by QR or kiosk. No guest ordering sessions exist on this site; the count appears here once guests order from their phones. This tile follows the Date filter only.</p>", x: 5, y: 22, w: 15, h: 3}
