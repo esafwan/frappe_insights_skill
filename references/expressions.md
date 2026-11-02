@@ -34,6 +34,6 @@ Alternative with the same result: two measures (`sum(net_total)` as `sales`, `su
 `date_diff` takes units year..day only. `time_diff` casts to TIME: it drops fractions of a second, is wrong across midnight, and the unit `millisecond` errors on MariaDB. The argument order (which side is subtracted) is `(unverified)`: the demo data has only millisecond gaps, so the sign could not be observed. For prep-time metrics use native SQL (`TIMESTAMPDIFF`) and verify the sign on real data first.
 
 ## Not verified
-- `sum_if`, `case`, `coalesce`, `round` and `format_date` were not run (documented in the source only).
+- `sum_if`, `case` and `format_date` were not run (documented in the source only). `coalesce(a, b)` is used in the shared URY layer name joins. For rounding use the method form `(sum(x)).round(0)`; `round(sum(x), 0)` renders a blank Number tile (gotcha 47).
 - `hour()` on a Datetime column (cast to time first) was not run.
 - Expression measures inside a Number chart config were not run; a summarize measure was.

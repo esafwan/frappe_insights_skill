@@ -63,7 +63,7 @@ Columns are referenced by bare name; helpers are in `insights/doctype/insights_d
 |---|---|
 | aggregate | `count`, `count_if(cond)`, `sum`, `sum_if(cond, col)`, `avg`, `min`, `max`, `median`, `distinct_count`, `distinct_count_if`, `group_concat` |
 | logic | `if_else(cond, a, b)`, `case`, `cases`, `one_if(cond)`, `coalesce`, `if_null`, `null_if`, `is_in`, `is_set`, `is_between` |
-| number | `abs`, `round(col, n)`, `floor`, `ceil` |
+| number | `abs`, `.round(n)` (method form on a number or on a parenthesised aggregate: `(sum(x)).round(0)`; the function form `round(x, n)` renders a blank Number tile, gotcha 47), `floor`, `ceil` |
 | text | `lower`, `upper`, `concat`, `replace`, `substring`, `contains`, `starts_with`, `length`, `json_value`, `json_extract` |
 | date parts | `year`, `quarter`, `month`, `week_of_year`, `day_of_year`, `day_of_week`, `day_name`, `day`, `hour`, `minute`, `second`, `format_date(col, '%Y-%m-%d')` |
 | date math | `date_diff`, `time_diff`, `date_add(col, n, 'days')`, `date_sub`, `within(col, 'Last 7 days')`, `now()`, `today()`, `week_start`, `month_start`, `quarter_start`, `year_start` |

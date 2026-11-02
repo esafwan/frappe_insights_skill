@@ -35,7 +35,7 @@ Exit codes: 0 ok, 1 lint/verify failure, 2 usage/parse, 3 live conflict, 4 auth/
 | New dashboard/query/chart | edit spec, `lint`, `compile`, `plan`, `apply --write` (`references/queries.md`, `charts.md`, `dashboards-filters.md`) |
 | Check column names exist | `catalog -o cat.json` then `lint --catalog cat.json` |
 | Hour of day, ratio, cast, date bucket | `references/expressions.md` (then `queries.md`) |
-| Rename a chart/query | `apply --rename id=OLD TITLE` (children are keyed by workbook + title; exit 3 if OLD is also another spec item's title) |
+| Rename a chart/query | `apply --rename COMPILED-KEY=OLD TITLE` (the key printed by `compile`, e.g. `ury-db04-menu-category-db04-unassigned`, not the spec id; children are keyed by workbook + title; exit 3 if OLD is also another spec item's title) |
 | Take over an existing workbook | `apply --write --adopt`, review `plan`, only then `apply --write --prune` (rule 13) |
 | Prove it works | `verify --min-rows 1`; opens `/insights/dashboards/<name>` |
 | Link it in desk | apply, verify, then `desk --dashboard <live name> --app <app path>`, then run the printed `fdesk` commands (frappe-desk skill) |

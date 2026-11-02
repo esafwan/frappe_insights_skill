@@ -19,7 +19,7 @@ queries:
       - {as: hour_of_day, type: Integer, expr: "hour(posting_time)"}
       - {as: hour_label, type: String, expr: "pad_number(hour(posting_time), 2)"}  # string label: pivot_wider on an Integer column mixes int and string names (IbisTypeError)
       - {as: weekday, type: String, expr: "day_name(posting_date)"}
-      # weekday_label sorts Mon..Sun as a column header (leading digit = ISO weekday). Local to this spec; the shared fact_invoices has no weekday_num yet.
+      # weekday_label sorts Mon..Sun as a column header (leading digit = ISO weekday). Same column as the shared semantic layer fact_invoices.
       - {as: weekday_label, type: String, expr: "if_else(day_name(posting_date) == 'Monday', '1 Mon', if_else(day_name(posting_date) == 'Tuesday', '2 Tue', if_else(day_name(posting_date) == 'Wednesday', '3 Wed', if_else(day_name(posting_date) == 'Thursday', '4 Thu', if_else(day_name(posting_date) == 'Friday', '5 Fri', if_else(day_name(posting_date) == 'Saturday', '6 Sat', '7 Sun'))))))"}
       - {as: is_zero_bill, type: Integer, expr: "if_else(grand_total == 0, 1, 0)"}
       - {as: has_discount, type: Integer, expr: "if_else(discount_amount > 0, 1, 0)"}
