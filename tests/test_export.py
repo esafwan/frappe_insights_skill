@@ -182,3 +182,16 @@ def test_never_raises_on_network_error():
 	r = export_all(c2)
 	assert r["ok"] is False and "exit_code" in r["error"]
 	assert review(c2, "1")["ok"] is False
+
+
+def test_ref_accepts_spec_id_kebab_and_full_marker():
+	# Regression (found live): the marker is kebab-cased, but users pass the spec id as typed.
+	from finsights_lib.export import _resolve
+	rows = [{"name": "7", "title": "URY Sales", "from_template": "finsights:ury-sales", "modified": "x"}]
+
+	class C:
+		def list_docs(self, *a, **k):
+			return rows
+
+	for ref in ("ury_sales", "ury-sales", "finsights:ury-sales", "finsights:ury_sales", "7", "URY Sales"):
+		assert _resolve(C(), ref)["name"] == "7"

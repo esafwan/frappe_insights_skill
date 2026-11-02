@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
 
 from .apply import DEP_KEY, DOCTYPES, FIELDS, JSON_FIELDS, _is_empty_helper
 from .common import Finding, FinsightsError
+from .compile import kebab
 from .verify import _check_links, _linked_names, _run_cached
 
 SERVER_FIELDS = {"data_query", "linked_charts", "creation", "modified", "modified_by", "owner",
@@ -28,10 +30,17 @@ def _resolve(client, ref) -> dict:
 		raise FinsightsError("workbook reference is required", 2)
 	ref = ref.strip()
 	rows = client.list_docs(DOCTYPES["workbook"], fields=_WB_FIELDS)
-	mk = "finsights:" + _marker_id(ref)
+	# The marker is written from the kebab-cased spec workbook id (compile.kebab), so accept the spec id
+	# as typed (`ury_heal_demo`), the kebab form (`ury-heal-demo`) and the full marker.
+	# Only id-looking refs (lowercase, no spaces) are normalised: a title such as "URY Sales" must NOT
+	# silently match the marker of spec id `ury_sales`; it stays a title lookup (and may be ambiguous).
+	bare = _marker_id(ref)
+	mks = {"finsights:" + bare}
+	if re.fullmatch(r"[a-z][a-z0-9_-]*", bare):
+		mks.add("finsights:" + kebab(bare))
 	stages = (
 		("name", [r for r in rows if r.get("name") == ref]),
-		("marker", [r for r in rows if r.get("from_template") == mk]),
+		("marker", [r for r in rows if r.get("from_template") in mks]),
 		("title", [r for r in rows if r.get("title") == ref]),
 	)
 	for what, hits in stages:
@@ -188,7 +197,7 @@ def review(client, ref, *, min_rows: int = 1) -> dict:
 				"type": i.get("filter_type"),
 				"links": len(i["links"]) if isinstance(i.get("links"), dict) else 0}
 				for i in items if i.get("type") == "filter"]
-			dash_out.append({"title": live.get("title"), "live_name": dl, "path": dpath,
+			dash_out.append({"title": live.get("title"), "live_name": dl, "path": f"/insights/dashboards/{dl}",
 				"charts": len(want), "filters": filters,
 				"links_ok": not any(f.severity == "error" for f in lf)})
 		return {
