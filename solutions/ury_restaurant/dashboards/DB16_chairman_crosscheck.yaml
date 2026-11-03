@@ -98,6 +98,14 @@ queries:
       - {column: docstatus, op: "=", value: 1}
     select: [name, date, branch, gross_sales, net_sales, cogs, cogs_percent, disposables_cost, gross_profit, gross_profit_percent, total_employee_costs, net_profit]
 
+  # fact_sales_target (sql, T1). Grain: one URY Sales Target row (branch x month). actual_net_sales = SUM(POS Invoice.net_total) of the same
+  # branch between period_start and period_end (submitted, non-return; same rule as net sales everywhere). is_current_month = 1 for the month
+  # that contains today (month to date against the full-month target); is_closed = 1 once the month has ended. Why sql: actual comes from a correlated range sum over the target dates,
+  # which the join grammar (one equality pair) cannot express. Date column: period_start. Branches without a target row do not appear.
+  - id: fact_sales_target
+    title: "fact_sales_target"
+    sql: "SELECT t.name, t.branch, t.company, t.period_start, t.period_end, t.target_amount, COALESCE((SELECT SUM(pi.net_total) FROM `tabPOS Invoice` pi WHERE pi.docstatus = 1 AND pi.is_return = 0 AND pi.branch = t.branch AND pi.posting_date BETWEEN t.period_start AND t.period_end), 0) AS actual_net_sales, CASE WHEN CURDATE() BETWEEN t.period_start AND t.period_end THEN 1 ELSE 0 END AS is_current_month, CASE WHEN t.period_end < CURDATE() THEN 1 ELSE 0 END AS is_closed, DATE_FORMAT(t.period_start, '%Y-%m') AS month_label FROM `tabURY Sales Target` t WHERE t.docstatus < 2"
+
 charts:
   # Numbering follows research/PWA_chairman_app_plan.md (10 slides). Number tiles carry the slide label in the measure
   # alias because Number charts do not render their title. One Number chart per tile (multi-measure tiles render narrow).
@@ -109,9 +117,12 @@ charts:
      date: {column: posting_date, granularity: day},
      y: [{column: name, agg: count, as: "Slide 1: Last day bills"}]}
   # Slide 2 (T1): month total in the filter. No comparison: previous month is empty on the demo (shows infinity).
-  # Target (SAL-021) is T4: no target table yet, so the 4th tile of the row is a text placeholder.
   - {id: db16_s2_mtd, title: "Slide 2: Month to date net sales (₹)", query: fact_invoices, type: Number,
      y: [{expr: "sum(net_total).round(0)", as: "Slide 2: Month to date net sales (₹)", format: currency}]}
+  # Slide 2 SAL-021: month to date against the monthly target (current calendar month; does not follow the Date filter)
+  - {id: db16_s2_target, title: "Slide 2: Month to date vs target (%)", query: fact_sales_target, type: Number,
+     filters: [{column: is_current_month, op: "=", value: 1}],
+     y: [{expr: "sum(actual_net_sales) / sum(target_amount)", as: "Slide 2: Month to date vs target (%)", format: percent}]}
   # Slide 3 (T3): one branch on this site.
   - {id: db16_branch_rank, title: "Slide 3: Net sales by branch (₹)", query: fact_invoices, type: Row, limit: 10,
      x: branch, y: [{expr: "sum(net_total).round(0)", as: "Net sales (₹)"}], order: [{by: "Net sales (₹)", dir: desc}]}
@@ -165,14 +176,14 @@ dashboards:
       - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"}, layout: {x: 0, y: 2, w: 10, h: 1},
          applies_to: {fact_invoices: posting_date, fact_sales_lines_enriched: posting_date, fact_payments: posting_date, fact_cancellations: posting_date, fact_closing_details: posting_date, fact_kot_headers: date, fact_daily_pnl: date}}
       - {id: f_branch, label: Branch, type: string, icon: store, layout: {x: 10, y: 2, w: 10, h: 1},
-         applies_to: {fact_invoices: branch, fact_sales_lines_enriched: branch, fact_payments: branch, fact_cancellations: branch, fact_closing_details: branch, fact_kot_headers: branch, fact_daily_pnl: branch}}
+         applies_to: {fact_invoices: branch, fact_sales_lines_enriched: branch, fact_payments: branch, fact_cancellations: branch, fact_closing_details: branch, fact_kot_headers: branch, fact_daily_pnl: branch, fact_sales_target: branch}}
     items:
       - {text: "<p><b>Chairman brief check.</b> Each card is one slide of the daily chairman brief, in slide order, so you can tick it against the brief. This page compares the last trading day with the day before; the brief uses the same weekday last week.</p>", x: 0, y: 0, w: 20, h: 2}
       # Slides 1-2
       - {chart: db16_s1_sales, x: 0, y: 3, w: 5, h: 3}
       - {chart: db16_s1_bills, x: 5, y: 3, w: 5, h: 3}
       - {chart: db16_s2_mtd, x: 10, y: 3, w: 5, h: 3}
-      - {text: "<p><b>Slide 2 target:</b> not recorded yet. See notes below.</p>", x: 15, y: 3, w: 5, h: 3}
+      - {chart: db16_s2_target, x: 15, y: 3, w: 5, h: 3}
       # Slides 3-4
       - {chart: db16_branch_rank, x: 0, y: 6, w: 10, h: 6}
       - {chart: db16_channel, x: 10, y: 6, w: 10, h: 6}
@@ -194,4 +205,4 @@ dashboards:
       # Extra tiles and notes
       - {chart: db16_x_profit, x: 0, y: 30, w: 5, h: 3}
       - {chart: db16_x_margin, x: 5, y: 30, w: 5, h: 3}
-      - {text: "<p><b>Notes.</b> <b>Not recorded yet:</b> monthly sales target for Slide 2; start entering targets in the sales target screen. <b>Estimates:</b> kitchen speed, covers and the Extra margin tiles (margin comes from the daily P and L). Cash-up counts closed shifts only.</p>", x: 10, y: 30, w: 10, h: 3}
+      - {text: "<p><b>Notes.</b> <b>Slide 2 target:</b> current month to date against the full-month target set for the branch; it does not follow the Date filter. <b>Estimates:</b> kitchen speed, covers and the Extra margin tiles (margin comes from the daily P and L). Cash-up counts closed shifts only.</p>", x: 10, y: 30, w: 10, h: 3}

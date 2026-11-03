@@ -40,6 +40,15 @@ queries:
     title: "fact_service_requests"
     sql: "SELECT sr.name, sr.request_type, sr.status, sr.`table`, sr.invoice, sr.requested_at, sr.resolved_at, sr.resolved_by, TIMESTAMPDIFF(SECOND, sr.requested_at, sr.resolved_at) / 60 AS response_minutes FROM `tabURY Service Request` sr"
 
+  # fact_seat_hours (sql, T2 PROXY). Grain: one branch x day with dine-in trade. Dine-in net sales, covers, bills and time at table
+  # (dwell_hours = SUM(total_spend_time) of bills with 0 < time <= 8 h; it runs bill created -> paid, not seated -> cleared), against capacity:
+  # seats and tables = enabled non-takeaway URY Tables of the branch (names containing 'waiting' excluded), open_hours = that weekday's enabled
+  # service windows in the URY Branch Operating Schedule. seat_hours = seats x open_hours, table_hours = tables x open_hours. Days with no dine-in
+  # bill and branches with no operating schedule are absent. Why sql: weekday-keyed hours from child windows, three aggregates joined. Date column: posting_date.
+  - id: fact_seat_hours
+    title: "fact_seat_hours"
+    sql: "SELECT d.branch, d.company, d.posting_date, d.bills, d.covers, d.net_sales, d.dwell_hours, t.tables_n, t.seats, w.open_hours, t.seats * w.open_hours AS seat_hours, t.tables_n * w.open_hours AS table_hours FROM (SELECT pi.branch, pi.company, pi.posting_date, COUNT(*) AS bills, SUM(CAST(COALESCE(NULLIF(pi.no_of_pax, ''), '0') AS UNSIGNED)) AS covers, SUM(pi.net_total) AS net_sales, SUM(CASE WHEN TIME_TO_SEC(pi.total_spend_time) > 0 AND TIME_TO_SEC(pi.total_spend_time) <= 28800 THEN TIME_TO_SEC(pi.total_spend_time) ELSE 0 END) / 3600 AS dwell_hours FROM `tabPOS Invoice` pi WHERE pi.docstatus = 1 AND pi.is_return = 0 AND pi.order_type = 'Dine In' GROUP BY pi.branch, pi.company, pi.posting_date) d JOIN (SELECT ut.branch, COUNT(*) AS tables_n, SUM(ut.no_of_seats) AS seats FROM `tabURY Table` ut WHERE COALESCE(ut.is_take_away, 0) = 0 AND LOCATE('waiting', ut.name) = 0 AND ut.no_of_seats > 0 GROUP BY ut.branch) t ON t.branch = d.branch JOIN (SELECT sch.branch, sw.parentfield AS weekday_field, SUM(TIME_TO_SEC(sw.close_time) - TIME_TO_SEC(sw.open_time)) / 3600 AS open_hours FROM `tabURY Branch Operating Schedule` sch JOIN `tabURY Branch Service Window` sw ON sw.parent = sch.name AND sw.parenttype = 'URY Branch Operating Schedule' WHERE sch.enabled = 1 AND sw.enabled = 1 GROUP BY sch.branch, sw.parentfield) w ON w.branch = d.branch AND w.weekday_field = LOWER(DAYNAME(d.posting_date))"
+
 charts:
   # S1 Floor (T1). KPI row: five tiles w:4, one measure each; occupied-now leads the row
   - {id: db07_bills, title: "Dine-in bills (count)", query: fact_table_sessions, type: Number,
@@ -59,6 +68,7 @@ charts:
      filters: [{column: order_type, op: "=", value: "Dine In"}, {column: population, op: "=", value: "Paid"}, {column: pax, op: ">", value: 0}],
      y: [{expr: "(sum(net_total) / sum(pax)).round(0)", as: "Spend per cover", format: currency}]}
   # S4 Dwell (T2 estimate): valid dwell only (dwell_valid = 1); db07_dq (Valid/All bills) dropped, footnote replaces it
+  # TBL-010 Time at table (PROXY for seat-to-clear): bill created to bill paid, valid bills only
   - {id: db07_dwell, title: "Avg time at table (min) (estimate)", query: fact_table_sessions, type: Number,
      filters: [{column: dwell_valid, op: "=", value: 1}],
      y: [{expr: "avg(dwell_minutes).round(0)", as: "Avg time at table"}]}
@@ -85,12 +95,32 @@ charts:
      filters: [{column: is_take_away, op: "=", value: 0}],
      x: {column: posting_date, granularity: day},
      y: [{expr: "(count(name) / distinct_count(restaurant_table)).round(1)", as: "Turns per table"}]}
+  # TBL-009 Net sales per available seat-hour (PROXY): dine-in net sales / (seats x open hours), days with dine-in trade
+  - {id: db07_revpash, title: "Net sales per seat-hour (₹, estimate)", query: fact_seat_hours, type: Number,
+     y: [{expr: "(sum(net_sales) / sum(seat_hours)).round(0)", as: "Net sales per seat-hour (₹)", format: currency}]}
+  # TBL-009 Covers per available seat-hour (PROXY)
+  - {id: db07_cover_seat, title: "Covers per seat-hour (estimate)", query: fact_seat_hours, type: Number,
+     y: [{expr: "(sum(covers) / sum(seat_hours)).round(2)", as: "Covers per seat-hour"}]}
+  # TBL-010 Table occupancy (PROXY): time at table / (tables x open hours)
+  - {id: db07_occupancy, title: "Table occupancy (%, estimate)", query: fact_seat_hours, type: Number,
+     y: [{expr: "sum(dwell_hours) / sum(table_hours)", as: "Table occupancy (%)", format: percent}]}
+  # TBL-009 Seat-hours available (the denominator)
+  - {id: db07_seat_hours, title: "Seat-hours available (hours)", query: fact_seat_hours, type: Number,
+     y: [{expr: "sum(seat_hours).round(0)", as: "Seat-hours available"}]}
+  # TBL-009 Net sales per seat-hour by day (PROXY)
+  - {id: db07_revpash_trend, title: "Net sales per seat-hour by day (₹, estimate)", query: fact_seat_hours, type: Line, limit: 366,
+     x: {column: posting_date, granularity: day},
+     y: [{expr: "(sum(net_sales) / sum(seat_hours)).round(0)", as: "Net sales per seat-hour"}]}
+  # TBL-010 Time at table by room (PROXY), valid bills only
+  - {id: db07_dwell_room, title: "Avg time at table by room (min, estimate)", query: fact_table_sessions, type: Row, limit: 10,
+     filters: [{column: dwell_valid, op: "=", value: 1}, {column: is_take_away, op: "=", value: 0}],
+     x: room, y: [{expr: "avg(dwell_minutes).round(0)", as: "Avg time at table"}], order: [{by: "Avg time at table", dir: desc}]}
 dashboards:
   - id: db07_table_floor
     title: "Tables and floor"
     filters:
-      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"}, layout: {x: 0, y: 2, w: 7, h: 1}, applies_to: {fact_table_sessions: posting_date, fact_invoices: posting_date, fact_service_requests: requested_at}}
-      - {id: f_branch, label: Branch, type: string, icon: store, layout: {x: 7, y: 2, w: 7, h: 1}, applies_to: {fact_table_sessions: branch, dim_table: branch, fact_invoices: branch}}
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"}, layout: {x: 0, y: 2, w: 7, h: 1}, applies_to: {fact_table_sessions: posting_date, fact_invoices: posting_date, fact_service_requests: requested_at, fact_seat_hours: posting_date}}
+      - {id: f_branch, label: Branch, type: string, icon: store, layout: {x: 7, y: 2, w: 7, h: 1}, applies_to: {fact_table_sessions: branch, dim_table: branch, fact_invoices: branch, fact_seat_hours: branch}}
       - {id: f_waiter, label: Waiter, type: string, icon: user, layout: {x: 14, y: 2, w: 6, h: 1}, applies_to: {fact_table_sessions: waiter, fact_invoices: waiter}}
     items:
       - {text: "<p><b>Tables and floor.</b> Which rooms and tables earn, how many covers you serve and how long guests stay. For floor manager and branch manager. Default period: last 30 days; every filter applies to every chart.</p>", x: 0, y: 0, w: 20, h: 2}
@@ -103,8 +133,15 @@ dashboards:
       - {chart: db07_overcap, x: 5, y: 6, w: 5, h: 3}
       - {chart: db07_requests, x: 10, y: 6, w: 5, h: 3}
       - {chart: db07_response, x: 15, y: 6, w: 5, h: 3}
-      - {text: "<p>Avg time at table is based on dine-in bills with a recorded time (about half). Guest request tiles follow the Date filter only.</p>", x: 0, y: 9, w: 20, h: 1}
-      - {chart: db07_room, x: 0, y: 10, w: 8, h: 9}
-      - {chart: db07_table, x: 8, y: 10, w: 12, h: 9}
-      - {chart: db07_turns, x: 0, y: 19, w: 20, h: 7}
-      - {text: "<p><b>Estimate:</b> time at table runs from bill created to bill paid, not seated to cleared; about half of dine-in bills have no time and are left out. Covers count paid bills only.</p><p><b>Not recorded yet:</b> seat utilisation and revenue per seat-hour. Needs opening hours and seat and clear times.</p>", x: 0, y: 26, w: 20, h: 2}
+      - {text: "<p><b>Seat use (estimates)</b> - dine-in sales and guests per seat and opening hour</p>", x: 0, y: 9, w: 20, h: 1}
+      - {chart: db07_revpash, x: 0, y: 10, w: 5, h: 3}
+      - {chart: db07_cover_seat, x: 5, y: 10, w: 5, h: 3}
+      - {chart: db07_occupancy, x: 10, y: 10, w: 5, h: 3}
+      - {chart: db07_seat_hours, x: 15, y: 10, w: 5, h: 3}
+      - {text: "<p>Seat-hours = seats x opening hours, for days with dine-in sales. Time at table counts bills with a recorded time.</p>", x: 0, y: 13, w: 20, h: 1}
+      - {chart: db07_room, x: 0, y: 14, w: 8, h: 9}
+      - {chart: db07_table, x: 8, y: 14, w: 12, h: 9}
+      - {chart: db07_turns, x: 0, y: 23, w: 20, h: 7}
+      - {chart: db07_revpash_trend, x: 0, y: 30, w: 12, h: 7}
+      - {chart: db07_dwell_room, x: 12, y: 30, w: 8, h: 7}
+      - {text: "<p><b>Estimate:</b> seat and table figures use tables x opening hours as the available capacity. Time at table runs from bill created to bill paid, not seated to cleared, so occupancy is a floor, not an exact figure. Bills without a time are left out. Covers count paid bills only.</p>", x: 0, y: 37, w: 20, h: 2}

@@ -32,6 +32,14 @@ queries:
     table: "URY Ordering Session"
     select: [name, source, status, opened_at, invoice, table]
 
+  # fact_sales_target (sql, T1). Grain: one URY Sales Target row (branch x month). actual_net_sales = SUM(POS Invoice.net_total) of the same
+  # branch between period_start and period_end (submitted, non-return; same rule as net sales everywhere). is_current_month = 1 for the month
+  # that contains today (month to date against the full-month target); is_closed = 1 once the month has ended. Why sql: actual comes from a correlated range sum over the target dates,
+  # which the join grammar (one equality pair) cannot express. Date column: period_start. Branches without a target row do not appear.
+  - id: fact_sales_target
+    title: "fact_sales_target"
+    sql: "SELECT t.name, t.branch, t.company, t.period_start, t.period_end, t.target_amount, COALESCE((SELECT SUM(pi.net_total) FROM `tabPOS Invoice` pi WHERE pi.docstatus = 1 AND pi.is_return = 0 AND pi.branch = t.branch AND pi.posting_date BETWEEN t.period_start AND t.period_end), 0) AS actual_net_sales, CASE WHEN CURDATE() BETWEEN t.period_start AND t.period_end THEN 1 ELSE 0 END AS is_current_month, CASE WHEN t.period_end < CURDATE() THEN 1 ELSE 0 END AS is_closed, DATE_FORMAT(t.period_start, '%Y-%m') AS month_label FROM `tabURY Sales Target` t WHERE t.docstatus < 2"
+
 charts:
   # One Number chart per tile: Insights renders a multi-measure Number at a fixed narrow tile width.
   - {id: db03_net_sales_kpi, title: "Net sales (₹)", query: fact_invoices, type: Number,
@@ -61,12 +69,30 @@ charts:
      filters: [{column: invoice, op: is_set}],
      y: [{column: name, agg: count, as: "Self-order bills"}]}
 
+  # SAL-021 Net sales against the monthly target, months that have ended (a full month of sales against a full-month target)
+  - {id: db03_target_attain, title: "Closed months against target (%)", query: fact_sales_target, type: Number,
+     filters: [{column: is_closed, op: "=", value: 1}],
+     y: [{expr: "sum(actual_net_sales) / sum(target_amount)", as: "Closed months against target (%)", format: percent}]}
+  # SAL-021 Month to date against the full-month target
+  - {id: db03_target_mtd, title: "Month to date vs target (%)", query: fact_sales_target, type: Number,
+     filters: [{column: is_current_month, op: "=", value: 1}],
+     y: [{expr: "sum(actual_net_sales) / sum(target_amount)", as: "Month to date vs target (%)", format: percent}]}
+  # SAL-021 Target for the selected months
+  - {id: db03_target_amount, title: "Sales target, selected months (₹)", query: fact_sales_target, type: Number,
+     y: [{expr: "sum(target_amount).round(0)", as: "Sales target (₹)", format: currency}]}
+  # SAL-021 Net sales in the same months
+  - {id: db03_target_actual, title: "Net sales, target months (₹)", query: fact_sales_target, type: Number,
+     y: [{expr: "sum(actual_net_sales).round(0)", as: "Net sales in target months (₹)", format: currency}]}
+  # SAL-021 Actual against target by month
+  - {id: db03_target_month, title: "Net sales against target by month (₹)", query: fact_sales_target, type: Bar, limit: 24, stack: false,
+     x: month_label,
+     y: [{expr: "sum(actual_net_sales).round(0)", as: "Net sales"}, {expr: "sum(target_amount).round(0)", as: "Target"}]}
 dashboards:
   - id: sales_deep_dive
     title: "Sales deep-dive"
     filters:
-      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"}, applies_to: {fact_invoices: posting_date, fact_ordering_sessions: opened_at}, layout: {x: 0, y: 2, w: 5, h: 1}}
-      - {id: f_branch, label: Branch, type: string, icon: store, applies_to: {fact_invoices: branch}, layout: {x: 5, y: 2, w: 5, h: 1}}
+      - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 90 days"}, applies_to: {fact_invoices: posting_date, fact_ordering_sessions: opened_at, fact_sales_target: period_start}, layout: {x: 0, y: 2, w: 5, h: 1}}
+      - {id: f_branch, label: Branch, type: string, icon: store, applies_to: {fact_invoices: branch, fact_sales_target: branch}, layout: {x: 5, y: 2, w: 5, h: 1}}
       - {id: f_order_type, label: "Order type", type: string, icon: utensils, applies_to: {fact_invoices: order_type}, layout: {x: 10, y: 2, w: 5, h: 1}}
       - {id: f_waiter, label: Waiter, type: string, icon: user, applies_to: {fact_invoices: waiter}, layout: {x: 15, y: 2, w: 5, h: 1}}
     items:
@@ -80,6 +106,13 @@ dashboards:
       - {chart: db03_grid, x: 0, y: 13, w: 12, h: 8}
       - {chart: db03_channel, x: 12, y: 13, w: 8, h: 8}
       - {text: "<p>Net sales exclude tax and cancelled bills. Average bill = net sales per bill.</p>", x: 0, y: 21, w: 20, h: 1}
-      # T4 (not recorded): SAL-020 self-order share (URY Ordering Session has 0 rows), SAL-021 targets (no target table), roadmap R13, R15. Empty-state text is P2, not applied.
-      - {chart: db03_self_order, x: 0, y: 22, w: 5, h: 3}
-      - {text: "<p><b>Not recorded yet:</b> share of bills ordered by QR or kiosk. No guest ordering sessions exist on this site; the count appears here once guests order from their phones. This tile follows the Date filter only.</p>", x: 5, y: 22, w: 15, h: 3}
+      # SAL-020 self-order share: no QR or kiosk sessions on this site yet. SAL-021 is the target section above.
+      - {text: "<p><b>Sales against target</b> - monthly net sales against the branch target</p>", x: 0, y: 22, w: 20, h: 1}
+      - {chart: db03_target_attain, x: 0, y: 23, w: 5, h: 3}
+      - {chart: db03_target_mtd, x: 5, y: 23, w: 5, h: 3}
+      - {chart: db03_target_amount, x: 10, y: 23, w: 5, h: 3}
+      - {chart: db03_target_actual, x: 15, y: 23, w: 5, h: 3}
+      - {chart: db03_target_month, x: 0, y: 26, w: 20, h: 7}
+      - {text: "<p>Closed months compare a full month to its target; the current month is month to date. Only branches with a target appear.</p>", x: 0, y: 33, w: 20, h: 1}
+      - {chart: db03_self_order, x: 0, y: 34, w: 5, h: 3}
+      - {text: "<p><b>Not recorded yet:</b> share of bills ordered by QR or kiosk. No guest ordering sessions exist on this site; the count appears here once guests order from their phones. This tile follows the Date filter only.</p>", x: 5, y: 34, w: 15, h: 3}

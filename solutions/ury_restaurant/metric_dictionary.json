@@ -422,24 +422,25 @@
   "id": "SAL-021",
   "name": "Sales vs monthly target",
   "domain": "sales",
-  "definition": "Month-to-date net sales against a target.",
-  "formula": "SUM(net_total) MTD / target",
+  "definition": "Net sales of the month against the monthly target set for the branch; the current month is month to date against the full-month target.",
+  "formula": "SUM(POS Invoice.net_total) per branch between URY Sales Target.period_start and period_end / URY Sales Target.target_amount",
   "grain": "month",
   "levels": [
    "branch",
    "company"
   ],
   "source_queries": [
-   "fact_invoices"
+   "fact_sales_target"
   ],
-  "tier": "T4",
+  "tier": "T1",
   "caveats": [
-   "No target doctype exists (PWA A3)."
+   "Only branches with a URY Sales Target row appear (demo: URY Branch, 7 months).",
+   "Current month is month to date, so it reads low until the month ends; closed months are shown separately."
   ],
   "chart_type_hint": "Number",
   "unit": "percent",
   "dashboards": [
-   "DB01",
+   "DB03",
    "DB16"
   ]
  },
@@ -1581,16 +1582,20 @@
   "id": "TBL-009",
   "name": "RevPASH / covers per seat-hour",
   "domain": "tables",
-  "definition": "Revenue per available seat hour.",
-  "formula": "SUM(net_total) / (SUM(no_of_seats) x open hours)",
+  "definition": "PROXY: dine-in net sales (and covers) per available seat-hour, where available seat-hours = seats of enabled non-takeaway tables x that weekday's opening hours.",
+  "formula": "SUM(dine-in net_total) / SUM(SUM(URY Table.no_of_seats) x open hours of the day), days with dine-in trade",
   "grain": "hour x room",
   "levels": [
    "branch"
   ],
-  "source_queries": [],
-  "tier": "T4",
+  "source_queries": [
+   "fact_seat_hours"
+  ],
+  "tier": "T2",
   "caveats": [
-   "URY Branch Operating Schedule has 0 rows; no seat/clear stamps."
+   "Proxy: capacity is tables x scheduled opening hours, not live seat occupancy.",
+   "Needs a URY Branch Operating Schedule per branch; branches without one are absent.",
+   "Days with no dine-in bill are not counted as available seat-hours."
   ],
   "chart_type_hint": "Line",
   "unit": "currency INR",
@@ -1602,16 +1607,20 @@
   "id": "TBL-010",
   "name": "Seat-to-clear dwell and utilisation",
   "domain": "tables",
-  "definition": "True table occupancy time and utilisation.",
-  "formula": "SUM(cleared_at - seated_at) / (tables x open minutes)",
+  "definition": "PROXY: time at table (bill created to bill paid, total_spend_time) per room, and table occupancy = time at table / (tables x opening hours).",
+  "formula": "AVG(total_spend_time) for 0 < time <= 8 h; SUM(time at table) / SUM(tables x open hours)",
   "grain": "table x day",
   "levels": [
    "branch"
   ],
-  "source_queries": [],
-  "tier": "T4",
+  "source_queries": [
+   "fact_table_sessions",
+   "fact_seat_hours"
+  ],
+  "tier": "T2",
   "caveats": [
-   "No seated_at/cleared_at fields or occupancy history."
+   "Proxy: not seated-to-cleared; bills without a recorded time are left out.",
+   "Occupancy is a floor estimate because time before the bill is created is not captured."
   ],
   "chart_type_hint": "Line",
   "unit": "percent",
@@ -1935,16 +1944,19 @@
   "id": "EMP-014",
   "name": "Sales per labour hour",
   "domain": "employee",
-  "definition": "Net sales per attended hour.",
-  "formula": "branch-day SUM(net_total) / SUM(Attendance.working_hours)",
+  "definition": "Branch net sales per hour of staff attendance (Attendance.working_hours of Present staff), for days that have both sales and attendance.",
+  "formula": "SUM(POS Invoice.net_total) / SUM(Attendance.working_hours), joined by branch (Employee.branch) and date",
   "grain": "branch x day",
   "levels": [
    "branch"
   ],
-  "source_queries": [],
-  "tier": "T4",
+  "source_queries": [
+   "fact_labour_hours"
+  ],
+  "tier": "T2",
   "caveats": [
-   "working_hours empty on 194/194 Attendance rows; Employee.user_id on 2 of 8."
+   "Branch-level only: sales of all staff against attendance of staff who have attendance rows.",
+   "Days with sales but no attendance (or the reverse) are excluded."
   ],
   "chart_type_hint": "Line",
   "unit": "currency INR",
@@ -1956,16 +1968,19 @@
   "id": "EMP-015",
   "name": "Tips and commission per waiter",
   "domain": "employee",
-  "definition": "Incentive earnings.",
-  "formula": "Tip field (none) / URY Commission Rule application",
+  "definition": "Tips entered at billing per waiter (POS Invoice.custom_tip_amount by custom_waiter_employee). Commission is not charted.",
+  "formula": "SUM(POS Invoice.custom_tip_amount) by waiter Employee",
   "grain": "invoice",
   "levels": [
    "employee"
   ],
-  "source_queries": [],
-  "tier": "T4",
+  "source_queries": [
+   "fact_tips"
+  ],
+  "tier": "T2",
   "caveats": [
-   "No tip field; commission rules 2 drafts."
+   "Partial: tips only. Commission is calculated by the Commission report in the app and is not stored on any table.",
+   "Tips depend on staff entering the tip at billing."
   ],
   "chart_type_hint": "Row",
   "unit": "currency INR",

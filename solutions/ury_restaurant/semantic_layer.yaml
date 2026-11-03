@@ -397,6 +397,46 @@ queries:
     title: "dim_item"
     sql: "WITH cm AS (SELECT ig.name AS item_group, CASE WHEN ig.name IN ('Dessert','Desserts','Pastry','Ice cream') THEN 'Desserts' WHEN ig.name IN ('Soups','Soups&Salads','SALADS','Salad Chicken') THEN 'Soups & Salads' WHEN ig.name IN ('Grills & BBQ','CHARCOL GRILLED','Grilled Specials','Chicken Al Fahams','KEBAB','Chicken Kebabs') THEN 'Grills & Kebabs' WHEN ig.name IN ('RICE','Biryani & Rice','Special Rice') THEN 'Rice & Biryani' WHEN ig.name IN ('Curries','GRAVY','GARAVIES','Main Course') THEN 'Mains & Curries' WHEN ig.name IN ('BURGER & WRAPS','Burgers & Sandwiches') THEN 'Burgers & Wraps' WHEN ig.name IN ('COMBOS','COMBO-LULU','PLATTER') THEN 'Combos & Platters' WHEN ig.name IN ('Soft Drinks','Cool Drinks','Soft Drink Spl','Soft Drink Can') THEN 'Soft Drinks' WHEN ig.name IN ('Juices&Mocktails','Smoothies','Beverages') THEN 'Juices & Beverages' WHEN ig.name = 'All Item Groups' THEN 'Unassigned' WHEN ig.name IN ('Raw Material','Services','Sub Assemblies','Consumable','Central Store','Burning Materials','Cleaning Material','Disposable','Chicken','Frozen Goods','Groceries','Milk & Curd','FISH','Provision','Sauces','Powder','Oil','Fruits','Kitchen Materials','Vegetable','VEGETABLES','Cleaning','Burning','GROCERY','Disposables','Ejt Masalas','PROCESSED','Rice Raw','Grilled Specials Raw','Chicken Kebabs Raw','Charges','MEAT','General','Raw Meat','MASALA PROCESSED','Staff Food') THEN 'Non-menu' ELSE ig.name END AS menu_category FROM `tabItem Group` ig), bc AS (SELECT b.item, MAX(b.raw_material_cost / NULLIF(b.quantity, 0)) AS bom_unit_cost FROM `tabBOM` b WHERE b.is_default = 1 AND b.is_active = 1 AND b.docstatus = 1 AND b.raw_material_cost > 0 GROUP BY b.item), sold AS (SELECT DISTINCT pii.item_code FROM `tabPOS Invoice Item` pii WHERE pii.docstatus = 1) SELECT i.name AS item_code, i.item_name, i.item_group, COALESCE(cm.menu_category, 'Unassigned') AS menu_category, CASE WHEN cm.menu_category IN ('Soft Drinks','Juices & Beverages') THEN 'Beverage' WHEN cm.menu_category IN ('Non-menu','Unassigned') THEN cm.menu_category WHEN cm.menu_category IS NULL THEN 'Unassigned' ELSE 'Food' END AS category_family, ipc.branch, COALESCE(NULLIF(ipc.department, ''), 'Unmapped') AS department, COALESCE(NULLIF(ipc.production_unit, ''), 'Unmapped') AS config_unit, ipc.production_policy, ipc.controlled_by_sales_plan, i.is_stock_item, i.is_sales_item, i.disabled, CASE WHEN sold.item_code IS NULL THEN 0 ELSE 1 END AS is_sold, bc.bom_unit_cost, CASE WHEN bc.bom_unit_cost IS NULL THEN 0 ELSE 1 END AS has_recipe_cost, i.valuation_rate, i.custom_yield_tracked, i.custom_yield_percent FROM `tabItem` i LEFT JOIN cm ON cm.item_group = i.item_group LEFT JOIN `tabURY Item Production Configuration` ipc ON ipc.item = i.name AND ipc.active = 1 LEFT JOIN bc ON bc.item = i.name LEFT JOIN sold ON sold.item_code = i.name"
 
+  # fact_sales_target (sql, T1). Grain: one URY Sales Target row (branch x month). actual_net_sales = SUM(POS Invoice.net_total) of the same
+  # branch between period_start and period_end (submitted, non-return; same rule as net sales everywhere). is_current_month = 1 for the month
+  # that contains today (month to date against the full-month target); is_closed = 1 once the month has ended. Why sql: actual comes from a correlated range sum over the target dates,
+  # which the join grammar (one equality pair) cannot express. Date column: period_start. Branches without a target row do not appear.
+  - id: fact_sales_target
+    title: "fact_sales_target"
+    sql: "SELECT t.name, t.branch, t.company, t.period_start, t.period_end, t.target_amount, COALESCE((SELECT SUM(pi.net_total) FROM `tabPOS Invoice` pi WHERE pi.docstatus = 1 AND pi.is_return = 0 AND pi.branch = t.branch AND pi.posting_date BETWEEN t.period_start AND t.period_end), 0) AS actual_net_sales, CASE WHEN CURDATE() BETWEEN t.period_start AND t.period_end THEN 1 ELSE 0 END AS is_current_month, CASE WHEN t.period_end < CURDATE() THEN 1 ELSE 0 END AS is_closed, DATE_FORMAT(t.period_start, '%Y-%m') AS month_label FROM `tabURY Sales Target` t WHERE t.docstatus < 2"
+
+  # fact_labour_hours (sql, T2). Grain: one branch x day that has BOTH POS sales and attendance. net_sales = SUM(POS Invoice.net_total) of the branch
+  # that day; labour_hours = SUM(Attendance.working_hours) of submitted Present attendance whose Employee.branch is that branch. Days with sales but
+  # no attendance (or the reverse) are left out so the ratio never mixes a full day of sales with no hours. Why sql: two aggregates joined on
+  # (branch, date), with Attendance branch coming from Employee. Date column: posting_date.
+  - id: fact_labour_hours
+    title: "fact_labour_hours"
+    sql: "SELECT s.branch, s.company, s.posting_date, s.net_sales, a.labour_hours, a.staff_present FROM (SELECT pi.branch, pi.company, pi.posting_date, SUM(pi.net_total) AS net_sales FROM `tabPOS Invoice` pi WHERE pi.docstatus = 1 AND pi.is_return = 0 GROUP BY pi.branch, pi.company, pi.posting_date) s JOIN (SELECT e.branch, att.attendance_date, SUM(att.working_hours) AS labour_hours, COUNT(DISTINCT att.employee) AS staff_present FROM `tabAttendance` att JOIN `tabEmployee` e ON e.name = att.employee WHERE att.docstatus = 1 AND att.status = 'Present' AND att.working_hours > 0 GROUP BY e.branch, att.attendance_date) a ON a.branch = s.branch AND a.attendance_date = s.posting_date"
+
+  # fact_tips (builder, T2). Grain: one submitted, non-return POS Invoice with the tip entered at billing (custom_tip_amount, custom field on POS Invoice)
+  # and the waiter's Employee name (custom_waiter_employee -> Employee.employee_name). Tips only: commission is calculated by the Commission report in
+  # the app and is not stored on any table, so it cannot be charted here. Date column: posting_date.
+  - id: fact_tips
+    title: "fact_tips"
+    table: "POS Invoice"
+    joins:
+      - {table: "Employee", type: left, on: [custom_waiter_employee, name], columns: [employee_name]}
+    filters:
+      - {column: docstatus, op: "=", value: 1}
+      - {column: is_return, op: "=", value: 0}
+    mutate:
+      - {as: waiter_label, type: String, expr: "coalesce(employee_name, custom_waiter_employee)"}
+    select: [name, posting_date, branch, company, order_type, waiter, custom_waiter_employee, waiter_label, net_total, custom_tip_amount]
+
+  # fact_seat_hours (sql, T2 PROXY). Grain: one branch x day with dine-in trade. Dine-in net sales, covers, bills and time at table
+  # (dwell_hours = SUM(total_spend_time) of bills with 0 < time <= 8 h; it runs bill created -> paid, not seated -> cleared), against capacity:
+  # seats and tables = enabled non-takeaway URY Tables of the branch (names containing 'waiting' excluded), open_hours = that weekday's enabled
+  # service windows in the URY Branch Operating Schedule. seat_hours = seats x open_hours, table_hours = tables x open_hours. Days with no dine-in
+  # bill and branches with no operating schedule are absent. Why sql: weekday-keyed hours from child windows, three aggregates joined. Date column: posting_date.
+  - id: fact_seat_hours
+    title: "fact_seat_hours"
+    sql: "SELECT d.branch, d.company, d.posting_date, d.bills, d.covers, d.net_sales, d.dwell_hours, t.tables_n, t.seats, w.open_hours, t.seats * w.open_hours AS seat_hours, t.tables_n * w.open_hours AS table_hours FROM (SELECT pi.branch, pi.company, pi.posting_date, COUNT(*) AS bills, SUM(CAST(COALESCE(NULLIF(pi.no_of_pax, ''), '0') AS UNSIGNED)) AS covers, SUM(pi.net_total) AS net_sales, SUM(CASE WHEN TIME_TO_SEC(pi.total_spend_time) > 0 AND TIME_TO_SEC(pi.total_spend_time) <= 28800 THEN TIME_TO_SEC(pi.total_spend_time) ELSE 0 END) / 3600 AS dwell_hours FROM `tabPOS Invoice` pi WHERE pi.docstatus = 1 AND pi.is_return = 0 AND pi.order_type = 'Dine In' GROUP BY pi.branch, pi.company, pi.posting_date) d JOIN (SELECT ut.branch, COUNT(*) AS tables_n, SUM(ut.no_of_seats) AS seats FROM `tabURY Table` ut WHERE COALESCE(ut.is_take_away, 0) = 0 AND LOCATE('waiting', ut.name) = 0 AND ut.no_of_seats > 0 GROUP BY ut.branch) t ON t.branch = d.branch JOIN (SELECT sch.branch, sw.parentfield AS weekday_field, SUM(TIME_TO_SEC(sw.close_time) - TIME_TO_SEC(sw.open_time)) / 3600 AS open_hours FROM `tabURY Branch Operating Schedule` sch JOIN `tabURY Branch Service Window` sw ON sw.parent = sch.name AND sw.parenttype = 'URY Branch Operating Schedule' WHERE sch.enabled = 1 AND sw.enabled = 1 GROUP BY sch.branch, sw.parentfield) w ON w.branch = d.branch AND w.weekday_field = LOWER(DAYNAME(d.posting_date))"
+
 # Probe charts: lint L24 anchors and verify smoke tests only (see header). Not part of any dashboard; not copied.
 charts:
   - {id: p_sales_lines, title: "probe fact_sales_lines", query: fact_sales_lines, type: Number, y: [{column: name, agg: count, as: Rows}]}
@@ -433,3 +473,7 @@ charts:
   - {id: p_stock_cover, title: "probe fact_stock_cover", query: fact_stock_cover, type: Number, y: [{column: item_code, agg: count, as: Rows}]}
   - {id: p_bulk_production, title: "probe fact_bulk_production", query: fact_bulk_production, type: Number, y: [{column: name, agg: count, as: Rows}]}
   - {id: p_sales_lines_policy, title: "probe fact_sales_lines_policy", query: fact_sales_lines_policy, type: Number, y: [{column: line_id, agg: count, as: Rows}]}
+  - {id: p_sales_target, title: "probe fact_sales_target", query: fact_sales_target, type: Number, y: [{column: name, agg: count, as: Rows}]}
+  - {id: p_labour_hours, title: "probe fact_labour_hours", query: fact_labour_hours, type: Number, y: [{column: branch, agg: count, as: Rows}]}
+  - {id: p_tips, title: "probe fact_tips", query: fact_tips, type: Number, y: [{column: name, agg: count, as: Rows}]}
+  - {id: p_seat_hours, title: "probe fact_seat_hours", query: fact_seat_hours, type: Number, y: [{column: branch, agg: count, as: Rows}]}
