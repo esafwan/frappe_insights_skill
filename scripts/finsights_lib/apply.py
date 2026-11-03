@@ -136,6 +136,40 @@ def norm_dashboard_items(items, name_map=None):
 	return sorted(out, key=lambda i: str((i.get("layout") or {}).get("i", "")) if isinstance(i, dict) else "")
 
 
+def _contains(want, got) -> bool:
+	"""True when `got` holds everything in `want`; extra dict keys in `got` are ignored. Insights 3.50-dev adds
+	defaults on save (chart config `id`, `number_column_options`, ...), which must not read as drift."""
+	if isinstance(want, dict):
+		return isinstance(got, dict) and all(k in got and _contains(v, got[k]) for k, v in want.items())
+	if isinstance(want, list):
+		return isinstance(got, list) and len(want) == len(got) and all(_contains(a, b) for a, b in zip(want, got))
+	return want == got or (isinstance(want, bool) or isinstance(got, bool)) and int(bool(want)) == int(bool(got))
+
+
+def to_develop_config(cfg):
+	"""Best-effort image of a 3.15-shaped chart config after Insights 3.50-dev's `normalize_chart_config`
+	(server-side on every save). Only keys observed live are mapped (2026-11-03, Insights 3.50.0-dev):
+	  Number `comparison: true`            -> number_column_options[*].comparison = {source: previous}
+	  `date_column.granularity`            -> window.grain (and removed from date_column)
+	Anything else the server adds is covered by the subset compare in `_contains`."""
+	import copy
+	cfg = copy.deepcopy(cfg)
+	if not isinstance(cfg, dict):
+		return cfg
+	if cfg.get("comparison") in (True, 1):
+		cfg.pop("comparison")
+		n = len(cfg.get("number_columns") or [])
+		cfg["number_column_options"] = [{"comparison": {"source": "previous"}} for _ in range(max(n, 1))]
+	dc = cfg.get("date_column")
+	if isinstance(dc, dict) and dc.get("granularity"):
+		cfg["window"] = {**(cfg.get("window") or {}), "grain": dc.pop("granularity")}
+	return cfg
+
+
+def _loaded(v):
+	return json.loads(json.dumps(_strip(json.loads(normalise(v)))))
+
+
 def diff_fields(kind: str, desired: dict, live: dict) -> dict:
 	out = {}
 	for f in FIELDS[kind] + ("workbook",):
@@ -146,6 +180,11 @@ def diff_fields(kind: str, desired: dict, live: dict) -> dict:
 			if json.dumps(a, sort_keys=True) != json.dumps(b, sort_keys=True):
 				out[f] = desired[f]
 		elif normalise(desired[f]) != normalise(live.get(f)):
+			want = _loaded(desired[f])
+			if kind == "chart" and f == "config":
+				want = to_develop_config(want)
+			if f in JSON_FIELDS and _contains(want, _loaded(live.get(f))):
+				continue  # live only has server-added defaults on top of the spec
 			out[f] = desired[f]
 	return out
 
@@ -190,6 +229,13 @@ def _topo(queries: dict) -> list:
 def _find_workbook(compiled, client, adopt):
 	mk = marker(compiled)
 	title = compiled["doc"]["title"]
+	if not client.has_field(DOCTYPES["workbook"], "from_template"):
+		# Insights 3.50-dev (Frappe develop): no ownership marker field. A workbook is matched by title only,
+		# flagged _by_title so --prune stays refused (nothing proves finsights owns it).
+		hits = client.list_docs(DOCTYPES["workbook"], filters={"title": title}, fields=["name", "title"])
+		if len(hits) > 1:
+			raise FinsightsError(f"ambiguous: {len(hits)} workbooks titled {title!r}", 3)
+		return dict(hits[0], _by_title=True) if hits else None
 	flds = ["name", "title", "from_template"]
 	hits = client.list_docs(DOCTYPES["workbook"], filters={"from_template": mk}, fields=flds)
 	if len(hits) > 1:
@@ -230,15 +276,17 @@ def plan_apply(compiled: dict, client, adopt: bool = False, renames: dict | None
 	wb = _find_workbook(compiled, client, adopt)
 	actions, name_map = [], {}
 	if wb is None:
-		actions.append(Action("create", DOCTYPES["workbook"], wb_key, None,
-			{"title": title, "from_template": marker(compiled)}, title))
+		wbf = {"title": title}
+		if client.has_field(DOCTYPES["workbook"], "from_template"):
+			wbf["from_template"] = marker(compiled)
+		actions.append(Action("create", DOCTYPES["workbook"], wb_key, None, wbf, title))
 		wb_live = None
 	else:
 		wb_live = wb["name"]
 		f = {}
 		if wb.get("title") != title:
 			f["title"] = title
-		if wb.get("from_template") != marker(compiled):
+		if client.has_field(DOCTYPES["workbook"], "from_template") and wb.get("from_template") != marker(compiled):
 			f["from_template"] = marker(compiled)
 		actions.append(Action("update" if f else "noop", DOCTYPES["workbook"], wb_key, wb_live, f, title))
 	name_map[wb_key] = wb_live
@@ -249,6 +297,8 @@ def plan_apply(compiled: dict, client, adopt: bool = False, renames: dict | None
 		rows = []
 		if wb_live:
 			fields = ["name", "title"] + {"query": ["operations"], "chart": ["data_query"]}.get(kind, [])
+			if kind == "chart" and not client.has_field(DOCTYPES["chart"], "data_query"):
+				fields = ["name", "title"]
 			rows = client.list_docs(DOCTYPES[kind], filters={"workbook": wb_live}, fields=fields)
 		if kind == "chart":
 			helpers = {r.get("data_query") for r in rows if r.get("data_query")}
@@ -343,7 +393,10 @@ def apply_plan(plan: Plan, compiled: dict, client, write: bool = False, prune: b
 					if not write:
 						say("+ would create", a)
 						continue
-					r = client.post(f"/api/resource/{a.doctype}", {"title": a.title, "from_template": mk})
+					body = {"title": a.title}
+					if client.has_field(a.doctype, "from_template"):
+						body["from_template"] = mk
+					r = client.post(f"/api/resource/{a.doctype}", body)
 					wb_live = r["data"]["name"]
 					name_map[a.key] = wb_live
 					say("created", a, f" ({wb_live})")

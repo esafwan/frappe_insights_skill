@@ -260,6 +260,21 @@ class Client:
 		return self._request("DELETE", path)
 
 	# -------------------------------------------------------------- docs
+	def has_field(self, doctype, fieldname) -> bool:
+		"""Whether the live DocType declares `fieldname`. Cached. Any lookup failure answers True, so the
+		3.15 behaviour is kept unless the site proves a field is gone (3.50-dev dropped Workbook.from_template
+		and Chart.data_query; see references/develop-compat.md)."""
+		cache = self.__dict__.setdefault("_field_cache", {})
+		if doctype not in cache:
+			try:
+				resp = self.get("/api/method/frappe.desk.form.load.getdoctype", {"doctype": doctype})
+				docs = resp.get("docs") or resp.get("message", {}).get("docs") or []
+				cache[doctype] = {f.get("fieldname") for f in docs[0].get("fields", [])} if docs else None
+			except Exception:
+				cache[doctype] = None
+		fields = cache[doctype]
+		return True if fields is None else fieldname in fields
+
 	def get_doc(self, doctype, name) -> dict:
 		r = self.get(f"/api/resource/{doctype}/{name}")
 		return _parse_json_fields(dict(r.get("data") or {}))

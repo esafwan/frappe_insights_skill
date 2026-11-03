@@ -56,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 	sp = add("catalog", "snapshot table columns from the live site")
 	sp.add_argument("--tables", default=None, help="comma list of DocTypes (default: those the spec reads)")
-	sp.add_argument("--data-source", default="Site DB")
+	sp.add_argument("--data-source", default=os.environ.get("INSIGHTS_DATA_SOURCE") or "Site DB")
 	sp.add_argument("-o", "--output", default=None, metavar="FILE")
 
 	for name, h in (("plan", "diff the spec against the live site"), ("apply", "create/update on the live site"),

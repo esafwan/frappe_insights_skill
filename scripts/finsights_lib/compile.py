@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 
 from .common import Finding
 from .schema import norm_chart_type, output_schema
 
-DATA_SOURCE = "Site DB"
+DEFAULT_DATA_SOURCE = "Site DB"
+
+
+def data_source() -> str:
+	"""Data source the compiled queries read. Default "Site DB" (Insights 3.15 / Frappe 16, tables == DocTypes).
+	Set INSIGHTS_DATA_SOURCE to another Insights Data Source v3 name for sites where the URY tables have no
+	DocType (Insights 3.50-dev refuses the Site DB for a table without a DocType; see
+	references/develop-compat.md)."""
+	return os.environ.get("INSIGHTS_DATA_SOURCE") or DEFAULT_DATA_SOURCE
 DATE_TYPES = ("Date", "Datetime")
 FILTER_TYPE_NAMES = {"date": "Date", "string": "String", "number": "Number"}
 
@@ -37,7 +46,7 @@ def _expr(e: str) -> dict:
 # ---------------------------------------------------------------- queries
 
 def _table_ref(table: str) -> dict:
-	return {"type": "table", "data_source": DATA_SOURCE, "table_name": "tab" + table}
+	return {"type": "table", "data_source": data_source(), "table_name": "tab" + table}
 
 
 def _filter_rule(f: dict) -> dict:
@@ -93,7 +102,7 @@ def _measure(m, schema: dict) -> dict:
 def _query_ops(q: dict, wb_name: str, names: dict, catalog: dict, qmap: dict, pruned: set) -> list:
 	"""Operations in the fixed order: source, joins, filter_group, mutate, select, summarize, order_by, limit."""
 	if q.get("sql"):
-		return [{"type": "sql", "data_source": DATA_SOURCE, "raw_sql": q["sql"]}]
+		return [{"type": "sql", "data_source": data_source(), "raw_sql": q["sql"]}]
 	ops = []
 	if q.get("table"):
 		ops.append({"type": "source", "table": _table_ref(q["table"])})
