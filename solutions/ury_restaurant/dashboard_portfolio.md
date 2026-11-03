@@ -10,6 +10,16 @@ unless a chart is listed. Default Date filter: `within Last 90 days` (DB02, DB06
 Acceptance: run each SQL read-only on the site DB, then clear the Date filter on the dashboard and compare the
 headline number (equal to the rupee/unit). Demo values in brackets are from the research and must be reproduced.
 
+**Data state (read this before the per-dashboard T4 notes below).** The notes below were written when the demo bench had no
+wastage, returns, targets, attendance, service charge, self-ordering, bulk production or yield department. The bench has since been
+re-seeded and all of those now have rows and are charted (coverage 138/138): URY Wastage (57), URY Sales Target (7), Attendance (844),
+URY Ordering Session (18), Bulk Production (14), service-charge tax lines, credit-note returns, yield checks with department and
+checker. Where a T4 line below says "no records" or "banner only", treat it as history unless it is repeated here. What is still
+empty or a proxy on the demo: cook speed (every ready tap is the Administrator login, which the chart excludes), KOT durations
+(stamps are milliseconds apart), committed quantity (no reservations), void disposition on cancelled KOT items (none set), cash
+differences on closed shifts (none), commission (not stored on the bill, only tips), queue wait (no queued-at), RevPASH
+(seat-hour and table occupancy are proxies), gross margin (estimate from the daily P and L).
+
 ## 1. Portfolio matrix (audience x domain; cell = DB id)
 
 | Audience \ Domain | Sales | Menu/Category | Production/Dept | Kitchen timing | Tables | People | Payments | Margin | Waste/Stock | Yield | Plan | Leakage | Data quality |
@@ -46,7 +56,7 @@ Sections:
 - S3 Where revenue comes from: db01_category | Row | MNU-005 | fact_sales_lines_enriched | x menu_category / SUM(net_amount), limit 12, desc | category_family != Non-menu | (0,12,7,9); db01_department (T2) | Row | PRD-001 | fact_sales_lines_enriched | x department / SUM(net_amount) | - | (7,12,7,9); db01_top_items | Row | MNU-003 | fact_sales_lines_enriched | x item_name / SUM(net_amount) limit 10 desc | - | (14,12,6,9)
 - S4 Branch and company (T3): db01_branch | Row | SAL-012 | fact_invoices | x branch / SUM(net_total) | - | (0,21,10,6); text banner (10,21,10,6): "**T3** SAL-012: one branch and one company on this site; ranking becomes meaningful when a second branch posts (architecture section 2)."
 - S5 Control panel: db01_cancels | Number | LKG-001, LKG-002 | fact_cancellations | COUNT(name), SUM(grand_total) | - | (0,27,5,3); db01_sla (T2) | Number | KIT-004 | fact_kot_headers | expr sum(sla_breach)/sum(is_served) | - | (5,27,5,3); db01_plan | Number | PLN-001 | fact_sales_plan_items | expr sum(fulfilled_qty)/sum(qty) | - | (10,27,5,3); db01_yield | Number | YLD-001 | fact_yield_checks | expr sum(output_qty)/sum(input_qty)*100 | stock_uom = Kg | (15,27,5,3); db01_shrink | Number | STK-001 | fact_stock_correction | SUM(shrink_value), SUM(overage_value) | - | (0,30,7,3); db01_margin (T2) | Number | MAR-001, MAR-002 | fact_daily_pnl | SUM(gross_profit), expr sum(gross_profit)/sum(net_sales) | - | (7,30,7,3); db01_paymix | Donut | PAY-002 | fact_payments | x mode_of_payment / SUM(amount) | - | (14,30,6,6)
-- Banner (0,33,14,3): "**T2** margin is from seeded Daily P and L; recipe cost covers about 6-8% of revenue (MAR-005). **T4** Wastage (WST-001) has no records yet: roadmap R1. Kitchen SLA uses legacy KOT minutes (seeded 12/20 min)."
+- Banner (0,33,14,3): "**T2** margin is from seeded Daily P and L; recipe cost covers about 6-8% of revenue (MAR-005). Wastage (WST-001) is now logged and charted on DB11. Kitchen SLA uses legacy KOT minutes (seeded 12/20 min)."
 Acceptance:
 - SAL-001: `SELECT ROUND(SUM(net_total),2), COUNT(*) FROM \`tabPOS Invoice\` WHERE docstatus=1 AND is_return=0` [3754065.59, 3177]
 - PLN-001: `SELECT SUM(i.fulfilled_qty)/SUM(i.qty) FROM \`tabURY Sales Plan Item\` i WHERE i.docstatus=1` [0.866]
@@ -76,7 +86,7 @@ Sections:
 - S3 Channel and population: db03_channel | Bar | SAL-008 | x order_type / SUM(net_total), COUNT(name) | - | (0,13,10,8); db03_population | Donut | DQ-001 | x population / SUM(net_total) | - | (10,13,10,8)
 - S4 Demand rhythm: db03_hour | Bar | SAL-009 | x hour_of_day / COUNT(name) split population | - | (0,21,10,8); db03_grid | Table | SAL-010 | rows weekday, columns hour_of_day, COUNT(name) | - | (10,21,10,8)
 - S5 Basket: db03_basket | Number | SAL-004 | expr sum(total_qty)/count(name) Items per Bill, expr sum(net_total)/count(name) ATV | - | (0,29,10,3); db03_gross_net | Number | SAL-001 | SUM(total) Gross, SUM(net_total) Net, SUM(discount_amount) Discount | - | (10,29,10,3)
-- S6 T4 banner (0,32,20,2): "**T4** SAL-020 self-order share (URY Ordering Session has 0 rows) and SAL-021 targets (no target table): roadmap R13, R15."
+- S6 T4 banner (0,32,20,2): "SAL-020 self-order bills (URY Ordering Session, 18 on the demo) and SAL-021 targets (URY Sales Target, 7) are now charted."
 Acceptance: SAL-008 `SELECT order_type, COUNT(*), ROUND(SUM(net_total)) FROM \`tabPOS Invoice\` WHERE docstatus=1 AND is_return=0 GROUP BY 1` [Take Away 1,107/1,346,462; Dine In 995/1,233,368; Phone In 610,991; Delivery 559,802; Aggregators 4/3,442]; DQ-001 `... GROUP BY status` [Consolidated 2102 / Paid 1075].
 
 ## DB04 Menu & category performance
@@ -102,7 +112,7 @@ Sections:
 - S1 Money by configured department (T2): db05_dept_rev | Row | PRD-001 | fact_sales_lines_enriched | x department / SUM(net_amount) | - | (0,1,10,9); db05_unmapped | Number | DQ-002 | SUM(net_amount) | department = Unmapped | (10,1,5,4); db05_policy | Donut | PRD-003 | x production_policy / SUM(net_amount) | - | (15,1,5,9); db05_warehouse | Donut | PRD-002 | fact_sales_lines | x warehouse / SUM(net_amount) | - | (10,5,5,5)
 - S2 Work by executed unit (T1): db05_kots_unit | Row | PRD-004 | fact_kot_headers | x production / COUNT(name) | type != Duplicate | (0,10,10,8); db05_qty_unit | Table | PRD-005 | fact_kot_lines | rows production, item_name; SUM(qty_num) | - | (10,10,10,8)
 - S3 Plan by department: db05_plan_dept | Row | PLN-007 | fact_sales_plan_items | x department / expr sum(fulfilled_qty)/sum(qty) | - | (0,18,10,7)
-- S4 Banners (10,18,10,7): "Configured department (money) and executed unit (kitchen work) disagree on 74 of 203 KOT lines; they are shown separately on purpose. **T4** WST-004 wastage and YLD-008 yield by department have no data (Wastage 0 rows; Yield Check department empty): roadmap R1, R8. 17.4% of revenue has no configured department: R10."
+- S4 Banners (10,18,10,7): "Configured department (money) and executed unit (kitchen work) disagree on 74 of 203 KOT lines; they are shown separately on purpose. Wastage by department is on DB11 and yield by station on DB12 (both now have data), so DB05 only links to them. 17.4% of revenue has no configured department: R10."
 Acceptance: PRD-001 `SELECT COALESCE(NULLIF(c.department,''),'Unmapped') d, SUM(i.net_amount) FROM \`tabPOS Invoice Item\` i LEFT JOIN \`tabURY Item Production Configuration\` c ON c.item=i.item_code AND c.active=1 WHERE i.docstatus=1 GROUP BY 1` [Indian Kitchen 2,866,914; Unmapped 654,410; Chinese 126,320]; PRD-004 `SELECT production, COUNT(*) FROM \`tabURY KOT\` WHERE docstatus=1 GROUP BY 1`.
 
 ## DB06 Kitchen timing & KOT SLA
@@ -142,7 +152,7 @@ Sections:
 - S2 Upsell: db08_mix | Bar | EMP-007 | fact_sales_lines_enriched | x waiter / SUM(net_amount) split category_family | population = Paid | (0,9,12,8); db08_covers (T2) | Table | EMP-004, EMP-005 | fact_invoices | rows waiter; SUM(pax), expr sum(net_total)/sum(pax) | population = Paid, order_type = Dine In, pax > 0 | (12,9,8,8)
 - S3 Leakage owners: db08_cancels | Row | EMP-008 | fact_cancellations | x waiter / COUNT(name), SUM(grand_total) | - | (0,17,10,7)
 - S4 Cashiers: db08_cashier | Row | EMP-009 | fact_invoices | x cashier / SUM(net_total) | - | (10,17,10,7); db08_cashup (T3) | Row | EMP-010 | fact_closing_details | x user / SUM(difference) | - | (0,24,10,6); db08_labour (T2) | Number | EMP-012 | fact_daily_pnl | expr sum(total_employee_costs)/sum(net_sales) | - | (10,24,10,3)
-- S5 Banner (10,27,10,3) + (0,30,20,2): "Employee = Frappe user; HR Employee links exist for 2 people only (R3). **T3** EMP-010/011 cash-up and discounts are all zero/near-empty. **T4** EMP-013 cook speed (actors all Administrator, R4), EMP-014 sales per labour hour (no attendance hours), EMP-015 tips/commission (no field, R12)."
+- S5 Banner (10,27,10,3) + (0,30,20,2): "Employee = Frappe user; HR Employee links exist for 2 people only (R3). **T3** EMP-010 cash-up shows no differences on the demo (the table lists only shifts with a difference); EMP-011 discounts are small. EMP-013 cook speed stays empty on the demo (actors all Administrator, R4). EMP-014 sales per labour hour (attendance hours) and EMP-015 tips are charted; commission is not stored on the bill, so only tips show (R12)."
 Acceptance: EMP-001 `SELECT waiter, COUNT(*), SUM(net_total) FROM \`tabPOS Invoice\` WHERE docstatus=1 AND is_return=0 AND status<>'Consolidated' GROUP BY 1` [imran.ansari 363/505,635; info@tridz.com 284/414,720; suraj.yadav 175/232,665; urycaptain 141/203,460; uryrm 107/138,000]; EMP-008 `SELECT waiter, COUNT(*) FROM \`tabPOS Invoice\` WHERE docstatus=2 GROUP BY 1` [imran 18, info@tridz 16, suraj 15, urycaptain 8, uryrm 3].
 
 ## DB09 Payments & cash-up
@@ -177,13 +187,13 @@ Filters: f_date (fact_stock_correction.posting_date, fact_wastage_lines.posting_
 Sections:
 - S1 Shrinkage (T1): db11_kpi | Number | STK-001, STK-002, STK-003 | fact_stock_correction | SUM(shrink_value), SUM(overage_value), SUM(amount_difference) | - | (0,1,12,3); db11_pct | Number | STK-004 | expr (sum(overage_value)-sum(shrink_value))/sum(current_amount) | - | (12,1,8,3); db11_by_item | Bar | STK-005 | x item_name / SUM(shrink_value), SUM(overage_value) | - | (0,4,12,9); db11_by_reason | Donut | STK-006 | x reason / SUM(amount_difference) | - | (12,4,8,9)
 - S2 Kitchen waste proxy (T2): db11_wasted_prep | Number | WST-007 | fact_kot_exec | SUM(wasted_prep) | - | (0,13,6,3)
-- S3 Wastage (T4, banner only) (6,13,14,4): "**T4** WST-001..005 wastage value, reasons, % of sales and by department: no URY Wastage has ever been recorded (DQ-010 = 0). Also KIT-016 void disposition is 'Pending' on every line. Start logging wastage (roadmap R1); charts are pre-wired to fact_wastage_lines."
+- S3 Wastage (T4, banner only) (6,13,14,4): "WST-001..005 wastage value, reasons, % of sales and by department are charted from fact_wastage_lines (57 entries on the demo). KIT-016 void disposition is still unset on every line, so that donut is empty."
 - S4 Data counter: db11_waste_rows | Number | DQ-010 | fact_wastage_lines | COUNT(name) | - | (0,16,6,3)
 Note: verify with `--min-rows 0` for fact_wastage_lines only. STK-007 days of cover T4 (banner sentence in S3).
 Acceptance: STK-003 `SELECT SUM(amount_difference), SUM(ABS(amount_difference)), SUM(current_amount) FROM \`tabStock Correction Item\` WHERE docstatus=1` [204.0, 29,970.4, ~1,208,046]; `SELECT COUNT(*) FROM \`tabURY Wastage\`` [0].
 
 ## DB12 Yield & recipe adherence
-Workbook `ury_yield`, title "URY Yield". Audience: kitchen/production head. Levels: item, category (raw), branch; department T4; employee T3.
+Workbook `ury_yield`, title "URY Yield". Audience: kitchen/production head. Levels: item, category (raw), branch, department, checker.
 Purpose: which raw materials under-yield vs standard, how often checks fail tolerance, trend.
 Queries: fact_yield_checks, fact_stock_correction.
 Filters: f_date (fact_yield_checks.checked_on, fact_stock_correction.posting_date), f_branch (both), `f_uom` UOM (fact_yield_checks.stock_uom; default Kg so weights are not mixed with litres), `f_item` (fact_yield_checks.item, fact_stock_correction.item_code).
@@ -191,7 +201,7 @@ Sections:
 - S1 KPIs (T1): db12_kpi | Number | YLD-001, YLD-002, YLD-005, YLD-006 | fact_yield_checks | expr sum(output_qty)/sum(input_qty)*100 Actual, expr sum(expected_output)/sum(input_qty)*100 Standard, expr sum(below_standard)/count(name), expr sum(out_of_tolerance)/count(name) | - | (0,1,20,3)
 - S2 By item: db12_gap | Bar | YLD-003 | x item_name / expr sum(output_qty - expected_output)/sum(input_qty)*100 Gap pts | - | (0,4,10,9); db12_loss | Row | YLD-004 | x item_name / SUM(yield_loss_qty) | - | (10,4,10,9)
 - S3 Trend: db12_trend | Line | YLD-007 | x checked_on week / expr sum(output_qty)/sum(input_qty)*100 split item_name max 6 | - | (0,13,20,8)
-- S4 Link to counts: db12_count_var | Bar | STK-005 | fact_stock_correction | x item_name / SUM(amount_difference) | - | (0,21,10,7); banner (10,21,10,7): "**T4** YLD-008 by department (department empty on 66/66 checks, R8). **T3** YLD-009 loss cost, YLD-010 cadence compliance, EMP checker (all Administrator). Tolerance = 5 points (architecture constant)."
+- S4 Link to counts: db12_count_var | Bar | STK-005 | fact_stock_correction | x item_name / SUM(amount_difference) | - | (0,21,10,7); banner (10,21,10,7): "YLD-008 by department and yield by checker are charted (department and checker are now set on the checks). **T3** YLD-009 loss cost and YLD-010 cadence compliance. Tolerance = 5 points (architecture constant)."
 Acceptance: YLD-001 `SELECT item, SUM(output_qty)/SUM(input_qty)*100, SUM(input_qty*standard_yield_percent_snapshot/100)/SUM(input_qty)*100 FROM \`tabURY Yield Check\` GROUP BY 1` [Atta 89.9 vs 92; Chicken 90.3 vs 90; Brownie 87.9 vs 88; Butter 97.1 vs 98; Coconut Milk 91.8 vs 94; Basmati 92.2 vs 95]; total `SELECT SUM(input_qty), SUM(output_qty)` [1198.3, 1094.8].
 
 ## DB13 Production planning (plan vs actual)
@@ -204,7 +214,7 @@ Sections:
 - S2 Misses: db13_under | Row | PLN-004 | x item_code / SUM(under_qty) limit 15 | - | (0,4,10,9); db13_over | Row | PLN-005 | x item_code / SUM(over_qty) limit 15 | - | (10,4,10,9)
 - S3 Shape: db13_dept | Row | PLN-007 | x department / expr sum(fulfilled_qty)/sum(qty) | - | (0,13,7,8); db13_period | Bar | PLN-008 | x service_period / expr ratio split enforcement_mode | - | (7,13,7,8); db13_trend | Line | PLN-001 | x plan_date day / expr ratio | - | (14,13,6,8)
 - S4 Plan vs POS (T2): db13_planned_items | Row | PLN-010 | fact_sales_plan_items | x item_code / SUM(qty) limit 15 | - | (0,21,10,8); db13_sold_items | Row | PLN-010 | fact_sales_lines | x item_code / SUM(qty) limit 15 | - | (10,21,10,8)
-- Banner (0,29,20,2): "**T2** Plan vs POS shown side by side, not joined. **T3** PLN-009 committed qty is 0 on all lines. **T4** PRD-008 bulk production (0 runs). fulfilled_qty is a counter with no history."
+- Banner (0,29,20,2): "**T2** Plan vs POS shown side by side, not joined. **T3** PLN-009 committed qty is still 0 on all lines (no reservations). PRD-008 bulk production cost is charted (14 runs). fulfilled_qty is a counter with no history."
 Acceptance: `SELECT SUM(qty), SUM(fulfilled_qty), SUM(GREATEST(qty-fulfilled_qty,0)), SUM(GREATEST(fulfilled_qty-qty,0)) FROM \`tabURY Sales Plan Item\` WHERE docstatus=1` [4200, 3639, then under/over]; LKG-007 `SELECT COUNT(*) FROM \`tabPOS Invoice\` WHERE docstatus=2 AND cancel_reason='Kitchen out of stock'` [13].
 
 ## DB14 Data quality & capture readiness
@@ -230,7 +240,7 @@ Sections:
 - S2 Why and where: db15_reason | Row | LKG-004 | fact_cancellations | x cancel_reason / COUNT(name), SUM(grand_total) | - | (0,4,10,8); db15_ot | Donut | LKG-005 | x order_type / COUNT(name) | - | (10,4,5,8); db15_trend | Bar | LKG-001 | x posting_date week / COUNT(name) | - | (15,4,5,8)
 - S3 Who: db15_waiter | Row | EMP-008 | fact_cancellations | x waiter / SUM(grand_total) | - | (0,12,10,7); db15_disc_cashier (T3) | Row | EMP-011 | fact_invoices | x cashier / SUM(discount_amount) | has_discount = 1 | (10,12,10,7)
 - S4 Kitchen side: db15_stage | Bar | KIT-012, WST-007 | fact_kot_exec | x state / COUNT(name) | is_cancelled = 1 | (0,19,7,7); db15_modified | Number | KIT-014 | fact_kot_headers | COUNT(name) | type = Order Modified | (7,19,6,3); db15_voids | Number | KIT-015 | fact_kot_lines | SUM(cancelled_qty_num) | - | (13,19,7,3)
-- Banner (7,22,13,4): "Waiter = order owner, not necessarily the canceller (not stored, R14). **T3** discounts: 4 bills, 31.89 total. **T4** SAL-018 returns (none recorded). Cancel reason is free text."
+- Banner (7,22,13,4): "Waiter = order owner, not necessarily the canceller (not stored, R14). **T3** discounts: 4 bills, 31.89 total. SAL-018 returns are charted from credit notes. Cancel reason is free text."
 Acceptance: `SELECT cancel_reason, COUNT(*), SUM(grand_total) FROM \`tabPOS Invoice\` WHERE docstatus=2 GROUP BY 1` [60 / 87,680.00; mistake 14, out of stock 13, duplicate 12, payment 11, changed mind 10]; `SELECT COUNT(*), SUM(discount_amount) FROM \`tabPOS Invoice\` WHERE docstatus=1 AND discount_amount>0` [4, 31.89]; zero bills `... AND grand_total=0` [18].
 
 ## DB16 Chairman brief cross-check

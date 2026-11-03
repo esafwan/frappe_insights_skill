@@ -255,7 +255,7 @@ queries:
       - {as: over_qty, type: Decimal, expr: "if_else(fulfilled_qty > qty, fulfilled_qty - qty, 0)"}
     select: [name, parent, plan_date, branch, company, status, service_period, enforcement_mode, item_code, department, production_unit, production_policy, stock_uom, qty, committed_qty, fulfilled_qty, under_qty, over_qty]
 
-  # fact_wastage_lines (builder, T4 on demo: 0 rows). Grain: one Wastage Item of a submitted URY Wastage.
+  # fact_wastage_lines (builder, T2: 57 wastage entries on the re-seeded demo). Grain: one Wastage Item of a submitted URY Wastage.
   # Dashboards show an empty-state text block until rows exist (verify --min-rows 0 for this query only).
   - id: fact_wastage_lines
     title: "fact_wastage_lines"
@@ -297,7 +297,7 @@ queries:
       - {column: is_return, op: "=", value: 1}
     select: [name, posting_date, branch, company, order_type, waiter, cashier, grand_total, return_against]
 
-  # fact_service_charges (builder, T4 on demo: no service-charge tax rows). Grain: one tax/charge row of a submitted POS Invoice whose
+  # fact_service_charges (builder, T2 on the re-seeded demo). Grain: one tax/charge row of a submitted POS Invoice whose
   # account head contains 'Service'. tax_amount = service charge income. There is no tip field anywhere. Date column: posting_date.
   - id: fact_service_charges
     title: "fact_service_charges"
@@ -310,7 +310,7 @@ queries:
       - {column: account_head, op: contains, value: "Service"}
     select: [name, parent, posting_date, branch, company, account_head, tax_amount]
 
-  # fact_ordering_sessions (builder, T4 on demo: 0 rows). Grain: one QR/kiosk ordering session. invoice is set when the session became a bill.
+  # fact_ordering_sessions (builder, T2: 18 sessions on the re-seeded demo). Grain: one QR/kiosk ordering session. invoice is set when the session became a bill.
   # No branch column exists (sessions hang off a table), so only the Date filter can apply. Date column: opened_at.
   - id: fact_ordering_sessions
     title: "fact_ordering_sessions"
@@ -329,7 +329,7 @@ queries:
     title: "fact_kot_item_exec"
     sql: "SELECT ie.name, ie.kot, ie.state, ie.branch, ie.company, ie.production_unit, ki.item_name, DATE(COALESCE(ie.started_at, ie.creation)) AS exec_date, TIMESTAMPDIFF(SECOND, ie.started_at, ie.ready_at) / 60 AS prep_minutes FROM `tabURY KOT Item Execution` ie LEFT JOIN `tabURY KOT Items` ki ON ki.name = ie.kot_item WHERE ie.started_at IS NOT NULL AND ie.ready_at IS NOT NULL"
 
-  # fact_waste_vs_sales (sql, T4 on demo). Grain: one authorised wastage line (waste_value) UNION ALL one bill (sales_value); the other
+  # fact_waste_vs_sales (sql, T2 on the re-seeded demo). Grain: one authorised wastage line (waste_value) UNION ALL one bill (sales_value); the other
   # measure is 0 on each row so SUM(waste_value) / SUM(sales_value) honours the same date and branch filters (two facts cannot be joined
   # row-level). Date column: posting_date.
   - id: fact_waste_vs_sales
@@ -374,7 +374,7 @@ queries:
     title: "fact_stock_cover"
     sql: "SELECT b.item_code, SUM(b.actual_qty) AS on_hand_qty, COALESCE(o.out_30d, 0) / 30 AS daily_outflow_qty, CASE WHEN COALESCE(o.out_30d, 0) > 0 THEN SUM(b.actual_qty) / (o.out_30d / 30) END AS days_of_cover FROM `tabBin` b LEFT JOIN (SELECT item_code, SUM(-actual_qty) AS out_30d FROM `tabStock Ledger Entry` WHERE is_cancelled = 0 AND actual_qty < 0 AND posting_date >= CURDATE() - INTERVAL 30 DAY GROUP BY item_code) o ON o.item_code = b.item_code GROUP BY b.item_code, o.out_30d HAVING SUM(b.actual_qty) > 0"
 
-  # fact_bulk_production (builder, T4 on demo: 0 rows). Grain: one submitted Bulk Production run. total_cost = cost of the batch.
+  # fact_bulk_production (builder, T2: 14 runs on the re-seeded demo). Grain: one submitted Bulk Production run. total_cost = cost of the batch.
   - id: fact_bulk_production
     title: "fact_bulk_production"
     table: "Bulk Production"

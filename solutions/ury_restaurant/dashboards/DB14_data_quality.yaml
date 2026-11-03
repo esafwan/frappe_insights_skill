@@ -137,7 +137,7 @@ charts:
      x: population, y: [{column: name, agg: count, as: Bills}]}
   - {id: db14_covers_share, title: "Dine-in bills with covers (%)", query: fact_invoices, type: Bar, limit: 5,
      filters: [{column: order_type, op: "=", value: "Dine In"}],
-     x: population, y: [{expr: "count_if(pax > 0) / count(name)", as: "Bills with covers (%)", format: percent}]}
+     x: population, y: [{expr: "(100 * count_if(pax > 0) / count(name)).round(1)", as: "Bills with covers (%)"}]}
   - {id: db14_branches, title: "Branches with data", query: fact_invoices, type: Number,
      y: [{column: branch, agg: count_distinct, as: "Branches with data"}]}
   - {id: db14_companies, title: "Companies with data", query: fact_invoices, type: Number,
@@ -166,7 +166,7 @@ dashboards:
         y: 6
         w: 20
         h: 3
-      - text: "<p><b>Start recording these</b> (a suggested order)</p><ul><li><b>Wastage:</b> log spoiled and returned food daily. Unlocks true food cost.</li><li><b>Recipe costs:</b> add a costed recipe to each sold dish. Unlocks dish margin.</li><li><b>Staff link:</b> link each POS user to an Employee. Unlocks sales per person.</li><li><b>Cook on tickets:</b> record who cooks each ticket. Unlocks prep time per cook.</li><li><b>Station for every dish:</b> set one per dish. Unlocks station sales.</li></ul>"
+      - text: "<p><b>Start recording these</b> (a suggested order)</p><ul><li><b>Wastage:</b> keep logging spoiled and returned food daily. Unlocks true food cost.</li><li><b>Recipe costs:</b> add a costed recipe to each sold dish. Unlocks dish margin.</li><li><b>Staff link:</b> link each POS user to an Employee. Unlocks sales per person.</li><li><b>Cook on tickets:</b> record who cooks each ticket. Unlocks prep time per cook.</li><li><b>Station for every dish:</b> set one per dish. Unlocks station sales.</li></ul>"
         x: 0
         y: 10
         w: 20

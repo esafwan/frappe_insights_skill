@@ -146,7 +146,7 @@ charts:
   - {id: db01_top_items, title: "Top 10 items by net sales (₹)", query: fact_sales_lines_enriched, type: Row, limit: 10,
      x: item_name, y: [{expr: "(sum(net_amount)).round(0)", as: Net sales (₹)}], order: [{by: Net sales (₹), dir: desc}]}
   # S4 Branch (T3): structurally valid with one branch; shrunk to h:4 w:8.
-  - {id: db01_branch, title: "Net sales by branch (needs 2+ branches)", query: fact_invoices, type: Row, limit: 10,
+  - {id: db01_branch, title: "Net sales by branch (₹)", query: fact_invoices, type: Row, limit: 10,
      x: branch, y: [{expr: "(sum(net_total)).round(0)", as: Net sales (₹)}], order: [{by: Net sales (₹), dir: desc}]}
   # S4b Margin (T2 estimate, seeded Daily P and L; recipe cost covers ~6-8% of revenue, MAR-005)
   - {id: db01_gross_profit, title: "Gross profit (₹, est.)", query: fact_daily_pnl, type: Number,
@@ -198,5 +198,5 @@ dashboards:
       - {chart: db01_yield, x: 12, y: 29, w: 4, h: 3}
       - {chart: db01_shrink, x: 16, y: 29, w: 4, h: 3}
       - {text: "<p><b>Estimate:</b> gross profit and margin come from the daily P and L; recipe costs cover only part of sales, so treat margin as indicative.</p>", x: 0, y: 32, w: 20, h: 1}
-      - {text: "<p><b>Not recorded yet:</b> sales against a monthly target. Add a monthly sales target per branch; progress shows here once it exists.</p>", x: 0, y: 33, w: 20, h: 2}
+      - {text: "<p>Sales against the monthly branch target is on Sales deep-dive. Only branches with a target set appear there.</p>", x: 0, y: 33, w: 20, h: 2}
 desk: {workspace: "URY", label: "Owner Overview"}

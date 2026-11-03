@@ -66,7 +66,7 @@ charts:
      y: [{expr: "sum(total_employee_costs) / sum(net_sales)", as: "Labour cost", format: percent}]}
   - {id: db10_pnl_trend, title: "Food cost by week (%)", query: fact_daily_pnl, type: Line, limit: 120,
      x: {column: date, granularity: week},
-     y: [{expr: "sum(cogs) / sum(net_sales)", as: "Food cost", format: percent}]}
+     y: [{expr: "(100 * sum(cogs) / sum(net_sales)).round(1)", as: "Food cost"}]}
   - {id: db10_profit_trend, title: "Net profit by week (₹)", query: fact_daily_pnl, type: Bar, limit: 120,
      x: {column: date, granularity: week},
      y: [{column: net_profit, agg: sum, as: "Net profit", format: currency}]}
@@ -84,7 +84,7 @@ charts:
   - {id: db10_cat_cost, title: "Estimated margin by category (%) (estimate)", query: fact_sales_lines_enriched, type: Row, limit: 15,
      filters: [{column: cost_plausible, op: "=", value: 1}, {column: menu_category, op: "!=", value: "Unassigned"}, {column: menu_category, op: "!=", value: "Non-menu"}],
      x: menu_category,
-     y: [{expr: "sum(est_margin) / sum(costed_net_amount)", as: "Estimated margin", format: percent}],
+     y: [{expr: "(100 * sum(est_margin) / sum(costed_net_amount)).round(1)", as: "Estimated margin"}],
      order: [{by: "Estimated margin", dir: desc}]}
   - {id: db10_menu_eng, title: "Margin by dish (estimate)", query: fact_sales_lines_enriched, type: Table, limit: 15,
      filters: [{column: cost_plausible, op: "=", value: 1}],

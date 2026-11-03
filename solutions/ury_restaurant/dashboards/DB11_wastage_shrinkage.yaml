@@ -136,7 +136,7 @@ dashboards:
       - {chart: db11_excess, x: 5, y: 3, w: 5, h: 3}
       - {chart: db11_net, x: 10, y: 3, w: 5, h: 3}
       - {chart: db11_pct, x: 15, y: 3, w: 5, h: 3}
-      - {text: "<p><b>Not recorded yet: kitchen wastage.</b> No wastage entries exist, so waste value, reasons and waste % of sales are empty. Log spoiled or dropped food in URY Wastage at each shift end; these charts fill automatically.</p>", x: 0, y: 6, w: 20, h: 2}
+      - {text: "<p><b>Kitchen wastage</b> comes from authorised URY Wastage entries; log spoiled or dropped food at each shift end. The cancelled-items outcome chart needs a disposition on partly cancelled KOT items, which this site has none of yet.</p>", x: 0, y: 6, w: 20, h: 2}
       - {chart: db11_by_item, x: 0, y: 8, w: 12, h: 9}
       - {chart: db11_by_reason, x: 12, y: 8, w: 8, h: 5}
       - {chart: db11_wasted_prep, x: 12, y: 13, w: 8, h: 3}

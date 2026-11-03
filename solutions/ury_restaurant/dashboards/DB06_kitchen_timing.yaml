@@ -109,6 +109,6 @@ dashboards:
       - {chart: db06_funnel, x: 0, y: 14, w: 8, h: 6}
       - {chart: db06_cancel_stage, x: 8, y: 14, w: 5, h: 6}
       - {chart: db06_target, x: 13, y: 14, w: 7, h: 6}
-      - {text: "<p><b>Not recorded yet:</b> prep time, order-to-serve time and per-dish speed. Kitchen screen start, ready and served times on this site are test data; queue wait needs a queued-at time.</p>", x: 0, y: 27, w: 20, h: 2}
+      - {text: "<p><b>Partial data:</b> prep and order-to-serve times come from kitchen screen taps. On this demo site the taps are seeded milliseconds apart, so per-dish prep shows as zero and the stage chart is not realistic; on a live kitchen they fill in on their own. Queue wait needs a queued-at time.</p>", x: 0, y: 27, w: 20, h: 2}
       - {chart: db06_stage_time, x: 0, y: 20, w: 10, h: 7}
       - {chart: db06_item_speed, x: 10, y: 20, w: 10, h: 7}

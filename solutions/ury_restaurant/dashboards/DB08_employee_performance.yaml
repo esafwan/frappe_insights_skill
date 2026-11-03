@@ -150,7 +150,7 @@ charts:
   # S2 Upsell
   - {id: db08_mix, title: "Beverage share of sales by waiter (%)", query: fact_sales_lines_enriched, type: Row, limit: 15,
      x: waiter_name,
-     y: [{expr: "sum(if_else(category_family == 'Beverage', net_amount, 0)) / sum(net_amount)", as: Beverage share, format: percent}],
+     y: [{expr: "(100 * sum(if_else(category_family == 'Beverage', net_amount, 0)) / sum(net_amount)).round(1)", as: Beverage share}],
      order: [{by: Beverage share, dir: desc}],
      filters: [{column: population, op: "=", value: "Paid"}, {column: waiter, op: "!=", value: "Administrator"}]}
   - {id: db08_covers, title: "Covers and spend per cover by waiter", query: fact_invoices_named, type: Table, limit: 15,
@@ -244,4 +244,4 @@ dashboards:
       - {chart: db08_discount, x: 0, y: 47, w: 10, h: 7}
       - {chart: db08_cook, x: 10, y: 47, w: 10, h: 7}
       - {chart: db08_service, x: 0, y: 54, w: 5, h: 3}
-      - {text: "<p>Cook speed uses kitchen screen times, which on this site are test data. Service charge shows once a service-charge tax is billed.</p>", x: 5, y: 54, w: 15, h: 3}
+      - {text: "<p>Cook speed needs a named cook on each ready tap; on this site every tap was made by the Administrator login, which is left out, so the chart is empty until cooks sign in. Service charge is the tax lines named service charge on paid bills.</p>", x: 5, y: 54, w: 15, h: 3}

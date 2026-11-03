@@ -64,10 +64,17 @@ charts:
     title: "Plan fulfilled (%)"
     query: fact_sales_plan_items
     type: Number
-    y:
-      - {expr: "sum(fulfilled_qty) / sum(qty)", as: "Plan fulfilled (%)", format: percent}
-      - {column: qty, agg: sum, as: "Planned qty"}
-      - {column: fulfilled_qty, agg: sum, as: "Made qty"}
+    y: [{expr: "sum(fulfilled_qty) / sum(qty)", as: "Plan fulfilled (%)", format: percent}]
+  - id: db13_planned_kpi
+    title: "Planned qty"
+    query: fact_sales_plan_items
+    type: Number
+    y: [{column: qty, agg: sum, as: "Planned qty"}]
+  - id: db13_made_kpi
+    title: "Made qty"
+    query: fact_sales_plan_items
+    type: Number
+    y: [{column: fulfilled_qty, agg: sum, as: "Made qty"}]
   # LKG-007 Out-of-stock cancellations
   - id: db13_oos
     title: "Bills cancelled: kitchen out of stock"
@@ -103,7 +110,7 @@ charts:
     query: fact_sales_plan_items
     type: Row
     x: department
-    y: [{expr: "sum(fulfilled_qty) / sum(qty)", as: "Plan fulfilled (%)", format: percent}]
+    y: [{expr: "(100 * sum(fulfilled_qty) / sum(qty)).round(1)", as: "Plan fulfilled (%)"}]
     order: [{by: "Plan fulfilled (%)", dir: desc}]
   # PLN-008 Attainment by service period and enforcement
   - id: db13_period
@@ -113,14 +120,14 @@ charts:
     stack: false
     x: service_period
     split_by: {column: enforcement_mode}
-    y: [{expr: "sum(fulfilled_qty) / sum(qty)", as: "Plan fulfilled (%)", format: percent}]
+    y: [{expr: "(100 * sum(fulfilled_qty) / sum(qty)).round(1)", as: "Plan fulfilled (%)"}]
   - id: db13_trend
     title: "Plan fulfilled by day (%)"
     query: fact_sales_plan_items
     type: Line
     limit: 366
     x: {column: plan_date, granularity: day}
-    y: [{expr: "sum(fulfilled_qty) / sum(qty)", as: "Plan fulfilled (%)", format: percent}]
+    y: [{expr: "(100 * sum(fulfilled_qty) / sum(qty)).round(1)", as: "Plan fulfilled (%)"}]
 
   # S4 lowest-fulfilled dishes (replaces planned/sold unit charts). Ratio of sums.
   - id: db13_dish_low
@@ -130,9 +137,9 @@ charts:
     limit: 15
     filters: [{column: qty, op: ">", value: 0}]
     x: item_code
-    y: [{expr: "sum(fulfilled_qty) / sum(qty)", as: "Plan fulfilled (%)", format: percent}]
+    y: [{expr: "(100 * sum(fulfilled_qty) / sum(qty)).round(1)", as: "Plan fulfilled (%)"}]
     order: [{by: "Plan fulfilled (%)", dir: asc}]
-  # PLN-009 Committed vs fulfilled (committed quantity is empty until reservations are used)
+  # PLN-009 Committed vs fulfilled (committed quantity stays empty until reservations are used)
   - {id: db13_committed, title: "Committed vs made by service period (qty)", query: fact_sales_plan_items, type: Bar, limit: 10,
      x: service_period, y: [{column: committed_qty, agg: sum, as: "Committed (qty)"}, {column: fulfilled_qty, agg: sum, as: "Made (qty)"}]}
   # PLN-010 Plan vs POS units sold (two charts side by side on the same date filter; never row-joined)
@@ -153,7 +160,9 @@ dashboards:
       - {id: f_department, label: Department, type: string, icon: layers, layout: {x: 14, y: 2, w: 6, h: 1}, applies_to: {fact_sales_plan_items: department, fact_sales_lines: department}}
     items:
       - {text: "<p><b>Production planning.</b> Did each station make what the sales plan asked for, and which dishes fell short? For kitchen head. Default: last 90 days; good is near 100% with few out-of-stock cancellations.</p>", x: 0, y: 0, w: 20, h: 2}
-      - {chart: db13_kpi, x: 0, y: 3, w: 15, h: 3}
+      - {chart: db13_kpi, x: 0, y: 3, w: 5, h: 3}
+      - {chart: db13_planned_kpi, x: 5, y: 3, w: 5, h: 3}
+      - {chart: db13_made_kpi, x: 10, y: 3, w: 5, h: 3}
       - {chart: db13_oos, x: 15, y: 3, w: 5, h: 3}
       - {chart: db13_under, x: 0, y: 6, w: 12, h: 8}
       - {chart: db13_over, x: 12, y: 6, w: 8, h: 8}
@@ -162,9 +171,9 @@ dashboards:
       - {chart: db13_period, x: 7, y: 22, w: 7, h: 8}
       - {chart: db13_trend, x: 14, y: 22, w: 6, h: 8}
       - {text: "<p>100% = made exactly what the plan asked for.</p>", x: 0, y: 40, w: 20, h: 1}
-      - {text: "<p><b>Not recorded yet:</b> bulk production runs and committed quantity, so they are not shown. Plan fulfilled = quantity made divided by quantity planned.</p>", x: 0, y: 41, w: 20, h: 2}
+      - {text: "<p><b>Not recorded yet:</b> committed quantity (reservations); only the made series shows. Plan fulfilled = quantity made divided by quantity planned.</p>", x: 0, y: 41, w: 20, h: 2}
       - {chart: db13_committed, x: 0, y: 30, w: 6, h: 7}
       - {chart: db13_planned_dish, x: 6, y: 30, w: 7, h: 7}
       - {chart: db13_sold_dish, x: 13, y: 30, w: 7, h: 7}
       - {chart: db13_bulk_cost, x: 0, y: 37, w: 5, h: 3}
-      - {text: "<p>Plan vs sales: the two dish charts use the same filters but are not joined. Bulk production cost shows once bulk runs are submitted.</p>", x: 5, y: 37, w: 15, h: 3}
+      - {text: "<p>Plan vs sales: the two dish charts use the same filters but are not joined. Bulk production cost is the total of submitted bulk runs in the period.</p>", x: 5, y: 37, w: 15, h: 3}

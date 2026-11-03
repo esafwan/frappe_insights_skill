@@ -106,7 +106,7 @@ dashboards:
       - {chart: db03_grid, x: 0, y: 13, w: 12, h: 8}
       - {chart: db03_channel, x: 12, y: 13, w: 8, h: 8}
       - {text: "<p>Net sales exclude tax and cancelled bills. Average bill = net sales per bill.</p>", x: 0, y: 21, w: 20, h: 1}
-      # SAL-020 self-order share: no QR or kiosk sessions on this site yet. SAL-021 is the target section above.
+      # SAL-020 self-order bills: QR/kiosk ordering sessions turned into a bill. SAL-021 is the target section above.
       - {text: "<p><b>Sales against target</b> - monthly net sales against the branch target</p>", x: 0, y: 22, w: 20, h: 1}
       - {chart: db03_target_attain, x: 0, y: 23, w: 5, h: 3}
       - {chart: db03_target_mtd, x: 5, y: 23, w: 5, h: 3}
@@ -115,4 +115,4 @@ dashboards:
       - {chart: db03_target_month, x: 0, y: 26, w: 20, h: 7}
       - {text: "<p>Closed months compare a full month to its target; the current month is month to date. Only branches with a target appear.</p>", x: 0, y: 33, w: 20, h: 1}
       - {chart: db03_self_order, x: 0, y: 34, w: 5, h: 3}
-      - {text: "<p><b>Not recorded yet:</b> share of bills ordered by QR or kiosk. No guest ordering sessions exist on this site; the count appears here once guests order from their phones. This tile follows the Date filter only.</p>", x: 5, y: 34, w: 15, h: 3}
+      - {text: "<p>Bills that came from a guest QR or kiosk ordering session. This tile follows the Date filter only; there is no branch on a session.</p>", x: 5, y: 34, w: 15, h: 3}

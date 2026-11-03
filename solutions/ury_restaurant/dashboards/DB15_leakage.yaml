@@ -183,7 +183,7 @@ dashboards:
       - {chart: db15_waiter, x: 10, y: 14, w: 10, h: 7}
       - {text: "<p>The person shown took the order, not necessarily the one who cancelled. Cancelled value includes duplicates and re-billed orders, so it is not all lost revenue.</p>", x: 10, y: 21, w: 10, h: 2}
       - {chart: db15_disc, x: 0, y: 21, w: 5, h: 3}
-      - {text: "<p><b>Not enough data yet:</b> discounts by cashier. Shows once discounted bills are common enough to compare.</p>", x: 5, y: 21, w: 5, h: 3}
+      - {text: "<p>Discounts by cashier are on Staff performance.</p>", x: 5, y: 21, w: 5, h: 3}
       - {chart: db15_stage, x: 0, y: 24, w: 10, h: 9}
       - {chart: db15_modified, x: 10, y: 24, w: 5, h: 3}
       - {chart: db15_voids, x: 15, y: 24, w: 5, h: 3}

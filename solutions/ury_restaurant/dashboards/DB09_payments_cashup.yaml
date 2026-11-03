@@ -138,7 +138,7 @@ dashboards:
       - {chart: db09_variance, x: 16, y: 9, w: 4, h: 3}
       - {chart: db09_diff_shifts, x: 12, y: 12, w: 8, h: 6}
       - {text: "<p>Expected = cash the system says should be in the drawer. Counted = what the cashier counted at close.</p>", x: 0, y: 18, w: 12, h: 2}
-      - {text: "<p><b>No cash differences in this period.</b> Every shift closed with counted cash equal to expected.</p>", x: 12, y: 18, w: 8, h: 2}
+      - {text: "<p>The table lists only shifts where counted cash differs from expected. If it is empty, every shift in the period closed with no difference.</p>", x: 12, y: 18, w: 8, h: 2}
       - {chart: db09_mode, x: 0, y: 20, w: 6, h: 7}
       - {chart: db09_mode_ot, x: 6, y: 20, w: 14, h: 7}
       - {chart: db09_cashier, x: 0, y: 27, w: 20, h: 7}

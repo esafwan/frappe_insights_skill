@@ -90,7 +90,7 @@ charts:
      x: item_name, y: [{column: qty_num, agg: sum, as: Quantity}], order: [{by: Quantity, dir: desc}]}
   # S3 Plan vs sales
   - {id: db05_plan_dept, title: "Plan fulfilled by department (%)", query: fact_sales_plan_items, type: Row, limit: 15,
-     x: department, y: [{expr: "sum(fulfilled_qty) / sum(qty)", as: Plan fulfilled, format: percent}], order: [{by: Plan fulfilled, dir: desc}]}
+     x: department, y: [{expr: "(100 * sum(fulfilled_qty) / sum(qty)).round(1)", as: Plan fulfilled}], order: [{by: Plan fulfilled, dir: desc}]}
   - {id: db05_dept_rev, title: "Sales by assigned department (₹)", query: fact_sales_lines_enriched, type: Row, limit: 15,
      filters: [{column: department, op: "!=", value: "Unmapped"}],
      x: department, y: [{expr: "sum(floor(net_amount + 0.5))", as: Net sales, format: currency}], order: [{by: Net sales, dir: desc}]}
@@ -124,6 +124,6 @@ dashboards:
       - {chart: db05_top_dishes, x: 10, y: 8, w: 10, h: 8}
       - {chart: db05_plan_dept, x: 0, y: 16, w: 10, h: 7}
       - {chart: db05_dept_rev, x: 10, y: 16, w: 10, h: 7}
-      - {text: "<p><b>Not recorded yet:</b> wastage and yield by department. Log wastage and set the department on each yield check; this section fills automatically.</p>", x: 0, y: 30, w: 20, h: 2}
+      - {text: "<p>Wastage by department is on Stock count and wastage, and yield by station is on Yield and recipe checks, so they are not repeated here.</p>", x: 0, y: 30, w: 20, h: 2}
       - {chart: db05_warehouse, x: 0, y: 23, w: 10, h: 7}
       - {chart: db05_policy, x: 10, y: 23, w: 10, h: 7}
