@@ -1,4 +1,4 @@
-# DB01 Company / owner overview (portfolio section DB01). Audience: owner, chairman.
+# DB01 Company / owner overview (portfolio section DB01). Audience: owner.
 # Queries are copied VERBATIM from solutions/ury_restaurant/semantic_layer.yaml (ids, titles, operations, comments).
 # Populations: Consolidated vs Paid (architecture section 4); revenue/payments use BOTH, no waiter/covers metric here.
 # Category = cleaned menu_category (CATEGORY_MAP v1); department = CONFIGURED department (sales view), never mixed with executed unit.

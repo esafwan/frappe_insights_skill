@@ -1,9 +1,9 @@
-# DB16 Chairman brief cross-check. One chart per chairman PWA slide (architecture section 10) so each slide number can be
+# DB16 Owner brief cross-check. One chart per owner PWA slide (architecture section 10) so each slide number can be
 # reconciled with Insights. The PWA API (ury.ury.api.chairman.get_brief) is not built or called here.
 # Base queries are copied verbatim from semantic_layer.yaml (only the ones this dashboard reads).
 # Date filter default: Last 30 days (UX standard daily-ops default). Demo data ends 2026-10-21, so "yesterday"
 # here = latest day inside the Date filter (clear the filter or set it to 2026-10-21 to reproduce the pinned acceptance date).
-workbook: {id: ury_db16_chairman_crosscheck, title: "URY DB16 Chairman Crosscheck", module: "URY", required_apps: [ury]}
+workbook: {id: ury_db16_chairman_crosscheck, title: "URY DB16 Owner Crosscheck", module: "URY", required_apps: [ury]}
 queries:
   # fact_sales_lines_enriched (sql, T1/T2). Same grain as fact_sales_lines plus: cleaned menu_category and
   # category_family (CATEGORY_MAP v1), branch-safe configured department, BOM-based estimated cost.
@@ -171,14 +171,14 @@ charts:
      y: [{expr: "sum(gross_profit) / sum(net_sales)", as: "Extra: Gross margin (%, estimate)", format: percent}]}
 dashboards:
   - id: chairman_crosscheck
-    title: "Chairman brief check"
+    title: "Owner brief check"
     filters:
       - {id: f_date, label: Date, type: date, icon: calendar, default: {op: within, value: "Last 30 days"}, layout: {x: 0, y: 2, w: 10, h: 1},
          applies_to: {fact_invoices: posting_date, fact_sales_lines_enriched: posting_date, fact_payments: posting_date, fact_cancellations: posting_date, fact_closing_details: posting_date, fact_kot_headers: date, fact_daily_pnl: date}}
       - {id: f_branch, label: Branch, type: string, icon: store, layout: {x: 10, y: 2, w: 10, h: 1},
          applies_to: {fact_invoices: branch, fact_sales_lines_enriched: branch, fact_payments: branch, fact_cancellations: branch, fact_closing_details: branch, fact_kot_headers: branch, fact_daily_pnl: branch, fact_sales_target: branch}}
     items:
-      - {text: "<p><b>Chairman brief check.</b> Each card is one slide of the daily chairman brief, in slide order, so you can tick it against the brief. This page compares the last trading day with the day before; the brief uses the same weekday last week.</p>", x: 0, y: 0, w: 20, h: 2}
+      - {text: "<p><b>Owner brief check.</b> Each card is one slide of the daily owner brief, in slide order, so you can tick it against the brief. This page compares the last trading day with the day before; the brief uses the same weekday last week.</p>", x: 0, y: 0, w: 20, h: 2}
       # Slides 1-2
       - {chart: db16_s1_sales, x: 0, y: 3, w: 5, h: 3}
       - {chart: db16_s1_bills, x: 5, y: 3, w: 5, h: 3}

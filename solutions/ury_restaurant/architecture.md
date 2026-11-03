@@ -15,7 +15,7 @@ Target: Frappe 16.54 + Insights 3.15.1, demo site http://localhost:8002 (1 compa
 | L1 | Semantic base queries | 18 row-level queries in `semantic_layer.yaml` (`fact_*`, `dim_*`): fixed filters (docstatus, parenttype, is_return), pre-joined dimensions, common column names, computed flags | this architecture (copied verbatim by builders) |
 | L2 | Metrics | `metric_dictionary.json`: definition, exact formula on L1 columns, grain, levels, tier, caveats | this architecture |
 | L3 | Dashboards | DB01-DB16, one workbook each, charts aggregate L1 rows into L2 metrics | Sonnet builders |
-| L4 | Audiences | owner/chairman, branch manager, kitchen/production head, floor/FOH manager, finance/controller, data owner | sharing via Team/DocShare (section 7) |
+| L4 | Audiences | owner, branch manager, kitchen/production head, floor/FOH manager, finance/controller, data owner | sharing via Team/DocShare (section 7) |
 
 Rules that hold across layers:
 1. Queries are row-level, charts aggregate (skill rule 7). A dashboard filter can only bind a column present in the query's final output, so every fact carries the level columns it supports.
@@ -170,7 +170,7 @@ security boundary.
    `apply_user_permissions = 1` with Branch User Permissions, proven first with a restricted non-admin user (unverified
    on Site DB and native `sql:` queries); (b) per-branch workbook copies whose base queries add `branch = '<X>'`
    (deterministic, a spec per branch, generated from one template); (c) never rely on the dashboard filter alone.
-5. The chairman PWA computes its own numbers in a whitelisted URY API with server-side scope; Insights is its drill-down.
+5. The owner PWA computes its own numbers in a whitelisted URY API with server-side scope; Insights is its drill-down.
 
 ## 8. Naming conventions
 
@@ -203,11 +203,11 @@ Ranked by (metrics unlocked x decision value) / effort. "Unlocks" lists dictiona
 | R10 | Item Production Configuration department for the 62 unmapped items | Fill department/unit; unique item_group-per-unit routing | DQ-002 to 0, PRD-001 to T1 |
 | R11 | Branch on cash-up and stock | POS Closing Entry.branch; Warehouse -> branch map; cost center per branch | branch-level cash-up/stock/GL margin |
 | R12 | Tips and service charge | A taxes row for service charge and a tip field per invoice | SAL-019, EMP-015 |
-| R13 | Monthly targets | Small URY Brief Settings / target table per branch-month | SAL-021, chairman slide 2 |
+| R13 | Monthly targets | Small URY Brief Settings / target table per branch-month | SAL-021, owner brief slide 2 |
 | R14 | Controlled cancel/discount reasons + canceller | Select list instead of free text; store cancelled_by and discount approver | LKG-004 quality, EMP-008 true attribution |
 | R15 | Sales Plan committed_qty and fulfilment history; returns/credit notes; QR ordering | as named | PLN-009, SAL-018, SAL-020 |
 
-## 10. Chairman PWA slide mapping
+## 10. Owner PWA slide mapping
 
 The PWA (`PWA_chairman_app_plan.md`) computes slides server-side; the dictionary is its definition source and DB16
 mirrors each slide as an Insights cross-check so numbers can be reconciled.
@@ -233,7 +233,7 @@ Wave B (enriched sql facts; first builder verifies `fact_sales_lines_enriched` a
 DQ-CAT and SAL-001 before others copy them): DB04 Menu & category, DB10 Margin & cost, DB05 Department & production.
 Wave C (operational): DB02 Branch daily, DB06 Kitchen timing (first to run `fact_kot_exec`), DB07 Table & floor (first to
 run `fact_table_sessions`), DB13 Production planning, DB12 Yield, DB11 Wastage & shrinkage.
-Wave D (people and roll-ups): DB08 Employee performance, DB01 Owner overview (reuses charts proven in A-C), DB16 Chairman
+Wave D (people and roll-ups): DB08 Employee performance, DB01 Owner overview (reuses charts proven in A-C), DB16 Owner
 cross-check (after DB01).
 
 Dependencies: every spec copies L1 queries verbatim; any L1 change goes back to `semantic_layer.yaml` first, re-lint

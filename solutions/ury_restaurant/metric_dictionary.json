@@ -132,7 +132,7 @@
   ],
   "tier": "T2",
   "caveats": [
-   "Insights compares to the previous period, not the same weekday last week (chairman slide 1 uses D-8; PWA computes that)."
+   "Insights compares to the previous period, not the same weekday last week (owner brief slide 1 uses D-8; PWA computes that)."
   ],
   "chart_type_hint": "Number",
   "unit": "currency INR",

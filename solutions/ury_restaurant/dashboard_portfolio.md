@@ -24,7 +24,7 @@ differences on closed shifts (none), commission (not stored on the bill, only ti
 
 | Audience \ Domain | Sales | Menu/Category | Production/Dept | Kitchen timing | Tables | People | Payments | Margin | Waste/Stock | Yield | Plan | Leakage | Data quality |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Owner / chairman (company, branch) | DB01, DB16 | DB01 | DB01 | DB01 | - | - | DB01 | DB01 | DB01 | DB01 | DB01 | DB01 | DB14 |
+| Owner (company, branch) | DB01, DB16 | DB01 | DB01 | DB01 | - | - | DB01 | DB01 | DB01 | DB01 | DB01 | DB01 | DB14 |
 | Branch manager (branch, employee) | DB02, DB03 | DB04 | DB05 | DB02 | DB07 | DB08 | DB09 | - | DB11 | - | DB13 | DB15 | DB14 |
 | Kitchen / production head (department, item) | - | DB04 | DB05 | DB06 | - | - | - | - | DB11 | DB12 | DB13 | DB06 | - |
 | Finance / controller (company, branch, category) | DB03 | - | - | - | - | - | DB09 | DB10 | DB11 | - | - | DB15 | DB14 |
@@ -44,7 +44,7 @@ Standard filters (id: label -> column per query):
 
 ---
 ## DB01 Company / owner overview
-Workbook `ury_owner_overview`, title "URY Owner Overview". Audience: owner, chairman. Levels: company, branch (+ top items, categories, departments).
+Workbook `ury_owner_overview`, title "URY Owner Overview". Audience: owner. Levels: company, branch (+ top items, categories, departments).
 Purpose: one page to decide where to look next: is revenue on track, which channel/category/department drives it, are leakage, shrink, yield and SLA in control.
 Queries: fact_invoices, fact_sales_lines_enriched, fact_payments, fact_cancellations, fact_kot_headers, fact_sales_plan_items, fact_stock_correction, fact_yield_checks, fact_daily_pnl.
 Filters: f_date (Last 90 days, all queries), f_branch (all), f_population (fact_invoices, fact_sales_lines_enriched, fact_payments).
@@ -243,8 +243,8 @@ Sections:
 - Banner (7,22,13,4): "Waiter = order owner, not necessarily the canceller (not stored, R14). **T3** discounts: 4 bills, 31.89 total. SAL-018 returns are charted from credit notes. Cancel reason is free text."
 Acceptance: `SELECT cancel_reason, COUNT(*), SUM(grand_total) FROM \`tabPOS Invoice\` WHERE docstatus=2 GROUP BY 1` [60 / 87,680.00; mistake 14, out of stock 13, duplicate 12, payment 11, changed mind 10]; `SELECT COUNT(*), SUM(discount_amount) FROM \`tabPOS Invoice\` WHERE docstatus=1 AND discount_amount>0` [4, 31.89]; zero bills `... AND grand_total=0` [18].
 
-## DB16 Chairman brief cross-check
-Workbook `ury_chairman_crosscheck`, title "URY Chairman Brief Check". Audience: owner/chairman (drill-down from the PWA), data owner (reconciliation). Levels: company, branch.
+## DB16 Owner brief cross-check
+Workbook `ury_chairman_crosscheck`, title "URY DB16 Owner Crosscheck". Audience: owner (drill-down from the PWA), data owner (reconciliation). Levels: company, branch.
 Purpose: one chart per PWA slide (architecture section 10) so each slide number can be reconciled with Insights and drilled into. Not a replacement for the PWA (which computes same-weekday deltas and targets).
 Queries: fact_invoices, fact_sales_lines_enriched, fact_payments, fact_cancellations, fact_kot_headers, fact_closing_details, fact_daily_pnl.
 Filters: f_date (all), f_branch (all).
